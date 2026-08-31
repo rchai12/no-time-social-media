@@ -41,6 +41,10 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>No Time Media needs access to your photos to score and select the best ones for your posts.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>No Time Media needs access to your photos to score and select the best ones for your posts.</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>

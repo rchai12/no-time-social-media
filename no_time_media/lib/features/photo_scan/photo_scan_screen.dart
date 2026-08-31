@@ -5,7 +5,6 @@ import 'package:photo_manager/photo_manager.dart';
 import 'package:no_time_media/core/providers/photo_scan_provider.dart';
 import 'package:no_time_media/core/models/scored_photo.dart';
 import 'package:no_time_media/core/providers/generation_provider.dart';
-import 'package:no_time_media/core/models/ai_models.dart';
 
 class PhotoScanScreen extends ConsumerWidget {
   const PhotoScanScreen({super.key});
@@ -72,40 +71,19 @@ class PhotoScanScreen extends ConsumerWidget {
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: () async {
-          // Trigger AI post generation
           final photos = ref.read(photoScanProvider).maybeWhen(
-                data: (data) => data,
-                orElse: () => [],
-              );
-          
+            data: (data) => data,
+            orElse: () => <ScoredPhoto>[],
+          );
           if (photos.isEmpty) return;
-          
           try {
-            // Convert ScoredPhoto to PhotoInfo for the API call
-            final photoInfos = photos.map((photo) {
-              return PhotoInfo(
-                id: photo.id,
-                path: photo.path,
-                dateTaken: photo.dateTaken,
-                score: photo.compositeScore,
-                components: Components(
-                  recency: photo.recencyScore,
-                  aesthetic: photo.aestheticScore,
-                  novelty: photo.noveltyScore,
-                  faces: photo.facesScore,
-                ),
-              );
-            }).toList();
-            
-            // Generate posts
-            await ref.read(generationProvider.notifier).generatePosts(photoInfos);
-            
-            // Navigate to editor screen (placeholder for now)
-            // Navigator.pushNamed(context, '/editor');
+            await ref.read(generationProvider.notifier).generatePosts(photos);
           } catch (e) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Failed to generate posts: $e')),
-            );
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Generation failed: $e')),
+              );
+            }
           }
         },
         child: const Icon(Icons.auto_awesome),

@@ -7,36 +7,27 @@ import 'package:no_time_media/core/models/scored_photo.dart';
 class ScoringService {
   /// Calculates a composite score for the photo based on:
   /// - Recency (35%)
-  /// - Aesthetic (30%)
-  /// - Novelty (20%)  
+  /// - Aesthetic (30%) — sharpness + mock label confidence, averaged
+  /// - Novelty (20%)
   /// - Faces (15%)
-  /// - Sharpness (additional component)
   static Future<ScoredPhoto> calculateScores(PhotoEntity photo) async {
     try {
-      // Recency score (how recent the photo was taken)
       final recencyScore = _calculateRecencyScore(photo.dateTaken);
-      
-      // Aesthetic score (based on image labeling results)
-      final aestheticScore = await _calculateAestheticScore(photo.path);
-      
-      // Novelty score (based on image labeling results)
-      final noveltyScore = await _calculateNoveltyScore(photo.path);
-      
-      // Faces score (detecting faces in the photo)
-      final facesScore = await _calculateFacesScore(photo.path);
-      
-      // Sharpness score (using Laplacian variance - simplified approach with correct API)
+
       final sharpnessScore = await _calculateSharpnessScore(photo.path);
-      
-      // Compute composite score
+      final mockLabelScore = await _calculateAestheticScore(photo.path);
+      final aestheticScore = (sharpnessScore + mockLabelScore) / 2.0;
+
+      final noveltyScore = await _calculateNoveltyScore(photo.path);
+      final facesScore = await _calculateFacesScore(photo.path);
+
       final compositeScore = _computeCompositeScore(
         recencyScore,
-        aestheticScore, 
+        aestheticScore,
         noveltyScore,
         facesScore,
-        sharpnessScore,
       );
-      
+
       return ScoredPhoto(
         id: photo.id,
         path: photo.path,
@@ -56,100 +47,92 @@ class ScoringService {
       rethrow;
     }
   }
-  
-  /// Calculates recency score based on how recent the photo was taken
+
+  /// Linear recency over a 72-hour window. Older than 72h → 0.0.
   static double _calculateRecencyScore(DateTime dateTaken) {
-    final now = DateTime.now();
-    final duration = now.difference(dateTaken);
-    final daysAgo = duration.inDays;
-    
-    // Score: 1.0 for most recent, 0.0 for very old (older than 30 days)
-    if (daysAgo < 0) return 1.0; // Future date - unexpected but safe
-    if (daysAgo > 30) return 0.0;
-    
-    // Linear scoring from 1.0 (today) to 0.0 (30 days ago)
-    return 1.0 - (daysAgo / 30.0);
+    final hours = DateTime.now().difference(dateTaken).inMinutes / 60.0;
+    if (hours <= 0) return 1.0;
+    if (hours >= 72) return 0.0;
+    return 1.0 - (hours / 72.0);
   }
-  
-  /// Calculate aesthetic score using ML model (mock implementation)
+
+  /// Mock ML Kit label confidence (real labeling is deferred).
   static Future<double> _calculateAestheticScore(String path) async {
-    // This would use google_mlkit_image_labeling for actual implementation
-    // For now, we return a mock value
-    
-    // In real implementation, would analyze image labels and 
-    // correlate with aesthetic scoring from ML models
-    
-    // Mock: Return random score between 0.2 and 1.0
     return (0.2 + (DateTime.now().millisecondsSinceEpoch % 800) / 1000.0);
   }
-  
-  /// Calculate novelty score using ML model (mock implementation)
+
+  /// Mock novelty (real labeling is deferred).
   static Future<double> _calculateNoveltyScore(String path) async {
-    // This would use google_mlkit_image_labeling for actual implementation
-    // For now, we return a mock value
-    
-    // In real implementation, would analyze image labels and 
-    // correlate with novelty scoring from ML models
-    
-    // Mock: Return random score between 0.1 and 1.0
     return (0.1 + (DateTime.now().millisecondsSinceEpoch % 900) / 1000.0);
   }
-  
-  /// Calculate face score using ML model (mock implementation)
+
+  /// Mock face detection (real ML Kit is deferred).
   static Future<double> _calculateFacesScore(String path) async {
-    // This would use google_mlkit_face_detection for actual implementation
-    // For now, we return a mock value
-    
-    // In real implementation, would detect number of faces and calculate score
-    // Score is higher if faces are detected but in reasonable numbers
-    
-    // Mock: Return random score between 0.0 and 1.0 based on presence of faces
     final random = DateTime.now().millisecondsSinceEpoch % 1000;
-    if (random < 300) return 0.0; // No faces detected
+    if (random < 300) return 0.0;
     if (random > 800) {
-      return 0.8; // Multiple faces
+      return 0.8;
     } else {
-      return 0.2 + (random - 300) / 500.0; // Single face with some variation
+      return 0.2 + (random - 300) / 500.0;
     }
   }
-  
-  /// Calculate sharpness score using approximation (avoiding incompatible image APIs)
+
+  /// Laplacian variance of a 256×256 grayscale thumbnail, normalized by 500.
   static Future<double> _calculateSharpnessScore(String path) async {
     try {
       final file = File(path);
-      if (!await file.exists()) {
-        return 0.0;
-      }
-      
+      if (!await file.exists()) return 0.0;
+
       final bytes = await file.readAsBytes();
       final image = img.decodeImage(bytes);
-      
-      if (image == null) {
-        return 0.0;
+      if (image == null) return 0.0;
+
+      var gray = img.grayscale(image);
+      if (gray.width > 256 || gray.height > 256) {
+        gray = img.copyResize(gray, width: 256, height: 256);
       }
-      
-      // Simplified approach to sharpness calculation that avoids problematic APIs
-      // Just returns a mock value as the actual API is incompatible with this version
-      // In production, this would use real image processing
-      return 0.5; // Returning a fixed midpoint value for now
+
+      final w = gray.width;
+      final h = gray.height;
+
+      double sum = 0;
+      double sumSq = 0;
+      int count = 0;
+
+      for (int y = 1; y < h - 1; y++) {
+        for (int x = 1; x < w - 1; x++) {
+          final center = img.getLuminance(gray.getPixel(x, y));
+          final top = img.getLuminance(gray.getPixel(x, y - 1));
+          final bottom = img.getLuminance(gray.getPixel(x, y + 1));
+          final left = img.getLuminance(gray.getPixel(x - 1, y));
+          final right = img.getLuminance(gray.getPixel(x + 1, y));
+          final lap = (4 * center - top - bottom - left - right).abs();
+          sum += lap;
+          sumSq += lap * lap;
+          count++;
+        }
+      }
+
+      if (count == 0) return 0.0;
+      final mean = sum / count;
+      final variance = (sumSq / count) - (mean * mean);
+
+      return (variance / 500.0).clamp(0.0, 1.0);
     } catch (e) {
       debugPrint('Error calculating sharpness: $e');
       return 0.0;
     }
   }
-  
-  /// Computes the weighted composite score
+
   static double _computeCompositeScore(
     double recency,
-    double aesthetic, 
+    double aesthetic,
     double novelty,
     double faces,
-    double sharpness,
   ) {
-    // Weighting: Recency 35%, Aesthetic 30%, Novelty 20%, Faces 15%
-    return (recency * 0.35) + 
-           (aesthetic * 0.30) + 
-           (novelty * 0.20) + 
-           (faces * 0.15);
+    return (recency * 0.35) +
+        (aesthetic * 0.30) +
+        (novelty * 0.20) +
+        (faces * 0.15);
   }
 }

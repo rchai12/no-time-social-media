@@ -1,8 +1,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:no_time_media/core/services/ai_service.dart';
 import 'package:no_time_media/core/models/ai_models.dart';
+import 'package:no_time_media/core/models/scored_photo.dart';
 
-final generationProvider = AsyncNotifierProvider<GenerationNotifier, AIGenerationResponse?>(
+final generationProvider =
+    AsyncNotifierProvider<GenerationNotifier, AIGenerationResponse?>(
   () => GenerationNotifier(),
 );
 
@@ -12,7 +14,7 @@ class GenerationNotifier extends AsyncNotifier<AIGenerationResponse?> {
     return null;
   }
 
-  Future<void> generatePosts(List<PhotoInfo> photos) async {
+  Future<void> generatePosts(List<ScoredPhoto> photos) async {
     state = const AsyncLoading();
     try {
       final result = await AIService.generatePosts(photos);
