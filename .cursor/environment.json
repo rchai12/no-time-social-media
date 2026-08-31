@@ -1,0 +1,4 @@
+{
+  "name": "No Time Media",
+  "install": "bash .cursor/install.sh"
+}
