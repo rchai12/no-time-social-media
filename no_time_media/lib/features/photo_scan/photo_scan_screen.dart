@@ -1,7 +1,11 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:photo_manager/photo_manager.dart';
 import 'package:no_time_media/core/providers/photo_scan_provider.dart';
 import 'package:no_time_media/core/models/scored_photo.dart';
+import 'package:no_time_media/core/providers/generation_provider.dart';
+import 'package:no_time_media/core/models/ai_models.dart';
 
 class PhotoScanScreen extends ConsumerWidget {
   const PhotoScanScreen({super.key});
@@ -66,6 +70,46 @@ class PhotoScanScreen extends ConsumerWidget {
           ),
         ),
       ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () async {
+          // Trigger AI post generation
+          final photos = ref.read(photoScanProvider).maybeWhen(
+                data: (data) => data,
+                orElse: () => [],
+              );
+          
+          if (photos.isEmpty) return;
+          
+          try {
+            // Convert ScoredPhoto to PhotoInfo for the API call
+            final photoInfos = photos.map((photo) {
+              return PhotoInfo(
+                id: photo.id,
+                path: photo.path,
+                dateTaken: photo.dateTaken,
+                score: photo.compositeScore,
+                components: Components(
+                  recency: photo.recencyScore,
+                  aesthetic: photo.aestheticScore,
+                  novelty: photo.noveltyScore,
+                  faces: photo.facesScore,
+                ),
+              );
+            }).toList();
+            
+            // Generate posts
+            await ref.read(generationProvider.notifier).generatePosts(photoInfos);
+            
+            // Navigate to editor screen (placeholder for now)
+            // Navigator.pushNamed(context, '/editor');
+          } catch (e) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Failed to generate posts: $e')),
+            );
+          }
+        },
+        child: const Icon(Icons.auto_awesome),
+      ),
     );
   }
   
@@ -76,12 +120,27 @@ class PhotoScanScreen extends ConsumerWidget {
         // This would be implemented in a later stage
       },
       child: Stack(
+        fit: StackFit.expand,
         children: [
-          Image.asset(
-            photo.path,
-            fit: BoxFit.cover,
-            width: double.infinity,
-            height: double.infinity,
+          FutureBuilder<Uint8List?>(
+            future: AssetEntity(
+              id: photo.id,
+              typeInt: 1,
+              width: photo.width,
+              height: photo.height,
+            ).thumbnailDataWithSize(const ThumbnailSize(200, 200)),
+            builder: (context, snapshot) {
+              if (snapshot.hasData && snapshot.data != null) {
+                return Image.memory(snapshot.data!, fit: BoxFit.cover);
+              }
+              if (snapshot.hasError) {
+                return const ColoredBox(
+                  color: Colors.grey,
+                  child: Icon(Icons.broken_image, color: Colors.white),
+                );
+              }
+              return const ColoredBox(color: Colors.grey);
+            },
           ),
           Positioned(
             bottom: 0,
@@ -91,7 +150,7 @@ class PhotoScanScreen extends ConsumerWidget {
               color: Colors.black.withOpacity(0.7),
               padding: const EdgeInsets.all(4),
               child: Text(
-                '${photo.compositeScore.toStringAsFixed(2)}',
+                photo.compositeScore.toStringAsFixed(2),
                 style: const TextStyle(
                   color: Colors.white,
                   fontSize: 12,

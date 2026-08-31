@@ -1,4 +1,3 @@
-import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:no_time_media/features/photo_scan/photo_scan_screen.dart';
 

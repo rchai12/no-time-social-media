@@ -18,5 +18,14 @@
         }
       }
     }
+  },
+  "permission": {
+    "bash": {
+      "git *": "allow",
+      "flutter *": "allow",
+      "dart *": "allow",
+      "adb *": "allow",
+      "supabase *": "allow"
+    }
   }
 }

@@ -106,8 +106,11 @@ class ScoringService {
     // Mock: Return random score between 0.0 and 1.0 based on presence of faces
     final random = DateTime.now().millisecondsSinceEpoch % 1000;
     if (random < 300) return 0.0; // No faces detected
-    if (random > 800) return 0.8; // Multiple faces
-    else return 0.2 + (random - 300) / 500.0; // Single face with some variation
+    if (random > 800) {
+      return 0.8; // Multiple faces
+    } else {
+      return 0.2 + (random - 300) / 500.0; // Single face with some variation
+    }
   }
   
   /// Calculate sharpness score using approximation (avoiding incompatible image APIs)
