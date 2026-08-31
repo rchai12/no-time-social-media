@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:photo_manager/photo_manager.dart';
 import 'package:no_time_media/core/providers/photo_scan_provider.dart';
 import 'package:no_time_media/core/models/scored_photo.dart';
@@ -12,6 +13,8 @@ class PhotoScanScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final photosAsync = ref.watch(photoScanProvider);
+    final generation = ref.watch(generationProvider);
+    final generating = generation.isLoading;
     
     return Scaffold(
       appBar: AppBar(
@@ -70,23 +73,41 @@ class PhotoScanScreen extends ConsumerWidget {
         ),
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () async {
-          final photos = ref.read(photoScanProvider).maybeWhen(
-            data: (data) => data,
-            orElse: () => <ScoredPhoto>[],
-          );
-          if (photos.isEmpty) return;
-          try {
-            await ref.read(generationProvider.notifier).generatePosts(photos);
-          } catch (e) {
-            if (context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Generation failed: $e')),
-              );
-            }
-          }
-        },
-        child: const Icon(Icons.auto_awesome),
+        onPressed: generating
+            ? null
+            : () async {
+                final photos = ref.read(photoScanProvider).maybeWhen(
+                      data: (data) => data,
+                      orElse: () => <ScoredPhoto>[],
+                    );
+                if (photos.isEmpty) return;
+                try {
+                  final drafts = await ref
+                      .read(generationProvider.notifier)
+                      .generatePosts(photos);
+                  if (!context.mounted) return;
+                  if (drafts.isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('No posts were generated')),
+                    );
+                    return;
+                  }
+                  context.push('/editor', extra: drafts);
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Generation failed: $e')),
+                    );
+                  }
+                }
+              },
+        child: generating
+            ? const SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Icon(Icons.auto_awesome),
       ),
     );
   }

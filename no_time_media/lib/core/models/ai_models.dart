@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 class PhotoResult {
   final String assetId;
   final String caption;
@@ -54,4 +56,14 @@ class AIGenerationResponse {
 
   @override
   int get hashCode => selectedPhotos.hashCode;
+}
+
+class GenerationBundle {
+  final AIGenerationResponse response;
+  final Map<String, Uint8List> thumbnailsByAssetId;
+
+  GenerationBundle({
+    required this.response,
+    required this.thumbnailsByAssetId,
+  });
 }

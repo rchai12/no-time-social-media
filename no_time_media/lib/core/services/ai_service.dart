@@ -10,11 +10,13 @@ class AIService {
   static final SupabaseClient _supabase = Supabase.instance.client;
 
   /// Triggers the edge function to generate AI posts from scored photos.
-  static Future<AIGenerationResponse> generatePosts(
+  static Future<GenerationBundle> generatePosts(
     List<ScoredPhoto> photos,
   ) async {
     try {
       final photoInputs = <Map<String, dynamic>>[];
+      final thumbnailsByAssetId = <String, Uint8List>{};
+
       for (final photo in photos) {
         final entity = AssetEntity(
           id: photo.id,
@@ -25,6 +27,7 @@ class AIService {
         final bytes =
             await entity.thumbnailDataWithSize(const ThumbnailSize(256, 256));
         if (bytes == null) continue;
+        thumbnailsByAssetId[photo.id] = bytes;
         photoInputs.add({
           'assetId': photo.id,
           'thumbnailBase64': base64Encode(bytes),
@@ -56,7 +59,10 @@ class AIService {
               ))
           .toList();
 
-      return AIGenerationResponse(selectedPhotos: results);
+      return GenerationBundle(
+        response: AIGenerationResponse(selectedPhotos: results),
+        thumbnailsByAssetId: thumbnailsByAssetId,
+      );
     } catch (e) {
       debugPrint('Error generating posts: $e');
       rethrow;
