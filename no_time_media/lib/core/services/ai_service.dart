@@ -9,13 +9,12 @@ import 'package:no_time_media/core/models/scored_photo.dart';
 class AIService {
   static final SupabaseClient _supabase = Supabase.instance.client;
 
-  /// Triggers the edge function to generate AI posts from scored photos.
   static Future<GenerationBundle> generatePosts(
     List<ScoredPhoto> photos,
   ) async {
     try {
       final photoInputs = <Map<String, dynamic>>[];
-      final thumbnailsByAssetId = <String, Uint8List>{};
+      final thumbnailMap = <String, Uint8List>{};
 
       for (final photo in photos) {
         final entity = AssetEntity(
@@ -27,7 +26,7 @@ class AIService {
         final bytes =
             await entity.thumbnailDataWithSize(const ThumbnailSize(256, 256));
         if (bytes == null) continue;
-        thumbnailsByAssetId[photo.id] = bytes;
+        thumbnailMap[photo.id] = bytes;
         photoInputs.add({
           'assetId': photo.id,
           'thumbnailBase64': base64Encode(bytes),
@@ -61,7 +60,7 @@ class AIService {
 
       return GenerationBundle(
         response: AIGenerationResponse(selectedPhotos: results),
-        thumbnailsByAssetId: thumbnailsByAssetId,
+        thumbnails: thumbnailMap,
       );
     } catch (e) {
       debugPrint('Error generating posts: $e');

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:photo_manager/photo_manager.dart';
+import 'package:no_time_media/core/models/post_draft.dart';
 import 'package:no_time_media/core/providers/photo_scan_provider.dart';
 import 'package:no_time_media/core/models/scored_photo.dart';
 import 'package:no_time_media/core/providers/generation_provider.dart';
@@ -15,6 +16,18 @@ class PhotoScanScreen extends ConsumerWidget {
     final photosAsync = ref.watch(photoScanProvider);
     final generation = ref.watch(generationProvider);
     final generating = generation.isLoading;
+
+    ref.listen<AsyncValue<List<PostDraft>>>(generationProvider, (prev, next) {
+      next.whenOrNull(
+        error: (e, _) {
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Generation failed: $e')),
+            );
+          }
+        },
+      );
+    });
     
     return Scaffold(
       appBar: AppBar(
@@ -81,25 +94,16 @@ class PhotoScanScreen extends ConsumerWidget {
                       orElse: () => <ScoredPhoto>[],
                     );
                 if (photos.isEmpty) return;
-                try {
-                  final drafts = await ref
-                      .read(generationProvider.notifier)
-                      .generatePosts(photos);
-                  if (!context.mounted) return;
-                  if (drafts.isEmpty) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('No posts were generated')),
-                    );
-                    return;
+                await ref
+                    .read(generationProvider.notifier)
+                    .generatePosts(photos);
+                if (!context.mounted) return;
+                final result = ref.read(generationProvider);
+                result.whenData((drafts) {
+                  if (drafts.isNotEmpty && context.mounted) {
+                    context.push('/editor', extra: drafts);
                   }
-                  context.push('/editor', extra: drafts);
-                } catch (e) {
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Generation failed: $e')),
-                    );
-                  }
-                }
+                });
               },
         child: generating
             ? const SizedBox(

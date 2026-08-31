@@ -5,20 +5,21 @@ import 'package:no_time_media/core/models/post_draft.dart';
 
 class ShareService {
   static Future<void> sharePost(PostDraft draft) async {
-    final caption = draft.displayCaption;
-    final hashtagString = draft.hashtags
-        .map((tag) => tag.startsWith('#') ? tag : '#$tag')
-        .join(' ');
-    final fullCaption = '$caption\n\n$hashtagString'.trim();
+    final hashtagString = draft.hashtags.map((h) => '#$h').join(' ');
+    final fullCaption = '${draft.effectiveCaption}\n\n$hashtagString';
 
     await Clipboard.setData(ClipboardData(text: fullCaption));
 
-    final entity = await AssetEntity.fromId(draft.assetId);
-    final file = await entity?.originFile ?? await entity?.file;
-    if (file == null) {
-      throw Exception('Could not load the original photo for sharing');
-    }
+    final entity = AssetEntity(
+      id: draft.assetId,
+      typeInt: 1,
+      width: 0,
+      height: 0,
+    );
+    final file = await entity.file;
+    if (file == null) throw Exception('Could not access photo file');
 
+    // share_plus 9.0.0 does not include SharePlus.instance / ShareParams.
     await Share.shareXFiles(
       [XFile(file.path)],
       text: fullCaption,

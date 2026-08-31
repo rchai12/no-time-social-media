@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:no_time_media/core/models/post_draft.dart';
 import 'package:no_time_media/core/models/scored_photo.dart';
+import 'package:no_time_media/core/models/social_platform.dart';
 import 'package:no_time_media/core/providers/generation_provider.dart';
 import 'package:no_time_media/core/providers/photo_scan_provider.dart';
 import 'package:no_time_media/core/services/draft_service.dart';
@@ -22,7 +24,6 @@ class _PostEditorScreenState extends ConsumerState<PostEditorScreen> {
   late List<PostDraft> _drafts;
   late final PageController _pageController;
   late final TextEditingController _captionController;
-  late final TextEditingController _hashtagController;
   int _page = 0;
   bool _rationaleExpanded = false;
   bool _busy = false;
@@ -34,59 +35,37 @@ class _PostEditorScreenState extends ConsumerState<PostEditorScreen> {
     super.initState();
     _drafts = List<PostDraft>.from(widget.drafts);
     _pageController = PageController();
-    _captionController = TextEditingController(text: _current.displayCaption);
-    _hashtagController = TextEditingController();
+    _captionController = TextEditingController(text: _current.effectiveCaption);
   }
 
   @override
   void dispose() {
     _pageController.dispose();
     _captionController.dispose();
-    _hashtagController.dispose();
     super.dispose();
   }
 
-  void _applyCaption(String value) {
-    final draft = _current;
-    if (value == draft.caption) {
-      draft.userEditedCaption = null;
-    } else {
-      draft.userEditedCaption = value;
-    }
-    setState(() {});
-  }
-
-  void _goToPage(int index) {
-    final next = index.clamp(0, _drafts.length - 1);
-    _page = next;
-    _captionController.text = _current.displayCaption;
-    _hashtagController.clear();
-    _rationaleExpanded = false;
-    setState(() {});
-  }
-
-  void _addHashtag(String raw) {
-    final tag = raw.trim().replaceAll('#', '');
-    if (tag.isEmpty) return;
-    if (_current.hashtags.contains(tag)) {
-      _hashtagController.clear();
-      return;
-    }
+  void _onPageChanged(int index) {
     setState(() {
-      _current.hashtags = [..._current.hashtags, tag];
+      _page = index;
+      _rationaleExpanded = false;
+      _captionController.text = _current.effectiveCaption;
     });
-    _hashtagController.clear();
   }
 
-  void _removeHashtag(String tag) {
+  void _onCaptionChanged(String value) {
     setState(() {
-      _current.hashtags = _current.hashtags.where((h) => h != tag).toList();
+      if (value == _current.caption) {
+        _current.userEditedCaption = null;
+      } else {
+        _current.userEditedCaption = value;
+      }
     });
   }
 
   Future<void> _saveDraft() async {
     try {
-      await ref.read(draftServiceProvider).save(_current);
+      await DraftService.save(_current);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Draft saved')),
@@ -132,11 +111,7 @@ class _PostEditorScreenState extends ConsumerState<PostEditorScreen> {
       );
       if (confirmed == true) {
         _current.isShared = true;
-        await ref.read(draftServiceProvider).save(_current);
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Marked as shared')),
-        );
+        await DraftService.save(_current);
       }
     } catch (e) {
       if (!mounted) return;
@@ -162,31 +137,104 @@ class _PostEditorScreenState extends ConsumerState<PostEditorScreen> {
 
     try {
       setState(() => _busy = true);
-      final drafts =
-          await ref.read(generationProvider.notifier).generatePosts(photos);
+      await ref.read(generationProvider.notifier).generatePosts(photos);
       if (!mounted) return;
-      if (drafts.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No posts were generated')),
-        );
-        return;
-      }
-      setState(() {
-        _drafts = drafts;
-        _page = 0;
+      final result = ref.read(generationProvider);
+      result.whenData((drafts) {
+        if (drafts.isEmpty) return;
+        setState(() {
+          _drafts = List<PostDraft>.from(drafts);
+          _page = 0;
+        });
+        if (_pageController.hasClients) {
+          _pageController.jumpToPage(0);
+        }
+        _captionController.text = _current.effectiveCaption;
       });
-      if (_pageController.hasClients) {
-        _pageController.jumpToPage(0);
-      }
-      _captionController.text = _current.displayCaption;
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Regeneration failed: $e')),
+      result.whenOrNull(
+        error: (e, _) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Regeneration failed: $e')),
+          );
+        },
       );
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  Future<void> _openHashtagEditor() async {
+    final tags = List<String>.from(_current.hashtags);
+    final controller = TextEditingController();
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        return Padding(
+          padding: EdgeInsets.only(
+            left: 16,
+            right: 16,
+            top: 16,
+            bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 16,
+          ),
+          child: StatefulBuilder(
+            builder: (context, setSheetState) {
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Edit hashtags',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
+                    children: [
+                      for (final tag in tags)
+                        InputChip(
+                          label: Text(tag.startsWith('#') ? tag : '#$tag'),
+                          onDeleted: () {
+                            setSheetState(() => tags.remove(tag));
+                          },
+                        ),
+                    ],
+                  ),
+                  TextField(
+                    controller: controller,
+                    textInputAction: TextInputAction.done,
+                    decoration: const InputDecoration(
+                      labelText: 'Add hashtag',
+                    ),
+                    onSubmitted: (value) {
+                      final tag = value.trim().replaceAll('#', '');
+                      if (tag.isEmpty || tags.contains(tag)) return;
+                      setSheetState(() => tags.add(tag));
+                      controller.clear();
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: FilledButton(
+                      onPressed: () => Navigator.of(sheetContext).pop(),
+                      child: const Text('Done'),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        );
+      },
+    );
+
+    controller.dispose();
+    setState(() {
+      _current.hashtags = tags;
+    });
   }
 
   @override
@@ -198,45 +246,33 @@ class _PostEditorScreenState extends ConsumerState<PostEditorScreen> {
       );
     }
 
-    final captionLength = _captionController.text.length;
-    final overLimit = captionLength > _captionLimit;
+    final pageLabel = '${_page + 1}/${_drafts.length}';
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('No Time Media'),
+        actions: [
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.only(right: 16),
+              child: Text(pageLabel),
+            ),
+          ),
+        ],
       ),
       body: Stack(
         children: [
           Column(
             children: [
-              if (_drafts.length > 1)
-                Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: List.generate(
-                      _drafts.length,
-                      (i) => Container(
-                        width: 8,
-                        height: 8,
-                        margin: const EdgeInsets.symmetric(horizontal: 3),
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: i == _page
-                              ? Theme.of(context).colorScheme.primary
-                              : Colors.grey.shade400,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
               Expanded(
                 child: PageView.builder(
                   controller: _pageController,
                   itemCount: _drafts.length,
-                  onPageChanged: _goToPage,
+                  onPageChanged: _onPageChanged,
                   itemBuilder: (context, index) {
                     final draft = _drafts[index];
+                    final platform =
+                        SocialPlatform.fromString(draft.platform).displayName;
                     return ListView(
                       padding: const EdgeInsets.all(16),
                       children: [
@@ -244,10 +280,12 @@ class _PostEditorScreenState extends ConsumerState<PostEditorScreen> {
                           aspectRatio: 1,
                           child: ClipRRect(
                             borderRadius: BorderRadius.circular(12),
-                            child: Image.memory(
-                              draft.thumbnail,
-                              fit: BoxFit.cover,
-                            ),
+                            child: draft.thumbnail.isEmpty
+                                ? const ColoredBox(color: Colors.grey)
+                                : Image.memory(
+                                    draft.thumbnail,
+                                    fit: BoxFit.cover,
+                                  ),
                           ),
                         ),
                         const SizedBox(height: 12),
@@ -255,7 +293,7 @@ class _PostEditorScreenState extends ConsumerState<PostEditorScreen> {
                           alignment: Alignment.centerLeft,
                           child: Chip(
                             avatar: const Icon(Icons.camera_alt, size: 16),
-                            label: Text(draft.socialPlatform.displayName),
+                            label: Text(platform),
                           ),
                         ),
                         if (draft.engagementRationale.isNotEmpty)
@@ -285,55 +323,66 @@ class _PostEditorScreenState extends ConsumerState<PostEditorScreen> {
                             controller: _captionController,
                             minLines: 3,
                             maxLines: 6,
-                            onChanged: _applyCaption,
+                            onChanged: _onCaptionChanged,
+                            inputFormatters: [
+                              LengthLimitingTextInputFormatter(_captionLimit),
+                            ],
                             decoration: const InputDecoration(
                               labelText: 'Caption',
                               border: OutlineInputBorder(),
                             ),
                           ),
-                          Align(
-                            alignment: Alignment.centerRight,
-                            child: Text(
-                              '$captionLength/$_captionLimit',
-                              style: TextStyle(
-                                color: overLimit ? Colors.red : Colors.grey,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ),
-                          if (_current.userEditedCaption != null)
-                            Align(
-                              alignment: Alignment.centerRight,
-                              child: TextButton(
-                                onPressed: () {
-                                  _current.userEditedCaption = null;
-                                  _captionController.text = _current.caption;
-                                  setState(() {});
-                                },
-                                child: const Text('Undo'),
-                              ),
-                            ),
-                          const SizedBox(height: 8),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 4,
+                          Row(
                             children: [
-                              for (final tag in _current.hashtags)
-                                InputChip(
-                                  label: Text(
-                                    tag.startsWith('#') ? tag : '#$tag',
-                                  ),
-                                  onDeleted: () => _removeHashtag(tag),
+                              const Spacer(),
+                              Text(
+                                '${_captionController.text.length}/$_captionLimit',
+                                style: const TextStyle(
+                                  color: Colors.grey,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              if (_current.userEditedCaption != null)
+                                IconButton(
+                                  tooltip: 'Undo',
+                                  onPressed: () {
+                                    _current.userEditedCaption = null;
+                                    _captionController.text = _current.caption;
+                                    setState(() {});
+                                  },
+                                  icon: const Icon(Icons.undo),
                                 ),
                             ],
                           ),
-                          TextField(
-                            controller: _hashtagController,
-                            textInputAction: TextInputAction.done,
-                            onSubmitted: _addHashtag,
-                            decoration: const InputDecoration(
-                              labelText: 'Add hashtag',
-                              hintText: 'travel',
+                          SizedBox(
+                            height: 40,
+                            child: ListView(
+                              scrollDirection: Axis.horizontal,
+                              children: [
+                                for (final tag in _current.hashtags)
+                                  Padding(
+                                    padding: const EdgeInsets.only(right: 8),
+                                    child: InputChip(
+                                      label: Text(
+                                        tag.startsWith('#') ? tag : '#$tag',
+                                      ),
+                                      onDeleted: () {
+                                        setState(() {
+                                          _current.hashtags = _current.hashtags
+                                              .where((h) => h != tag)
+                                              .toList();
+                                        });
+                                      },
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: TextButton(
+                              onPressed: _openHashtagEditor,
+                              child: const Text('Edit Hashtags'),
                             ),
                           ),
                         ],
@@ -364,7 +413,7 @@ class _PostEditorScreenState extends ConsumerState<PostEditorScreen> {
                       Expanded(
                         child: FilledButton(
                           onPressed: _busy ? null : _share,
-                          child: const Text('Share'),
+                          child: const Text('Share ↗'),
                         ),
                       ),
                     ],

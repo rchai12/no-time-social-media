@@ -39,17 +39,16 @@ void main() {
   }
 
   test('save, getAll newest-first, delete', () async {
-    final service = DraftService();
     final older = makeDraft('a', createdAt: DateTime(2026, 1, 1));
     final newer = makeDraft('b', createdAt: DateTime(2026, 8, 31));
 
-    await service.save(older);
-    await service.save(newer);
+    await DraftService.save(older);
+    await DraftService.save(newer);
 
-    final all = service.getAll();
+    final all = DraftService.getAll();
     expect(all.map((d) => d.id), ['b', 'a']);
 
-    await service.delete('b');
-    expect(service.getAll().map((d) => d.id), ['a']);
+    await DraftService.delete('b');
+    expect(DraftService.getAll().map((d) => d.id), ['a']);
   });
 }

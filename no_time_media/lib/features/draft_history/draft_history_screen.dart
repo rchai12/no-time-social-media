@@ -22,26 +22,16 @@ class DraftHistoryScreen extends ConsumerWidget {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.notes_outlined, size: 72, color: Colors.grey),
+                  Icon(Icons.drafts_outlined, size: 72, color: Colors.grey),
                   SizedBox(height: 16),
-                  Text(
-                    'No saved drafts yet',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-                  ),
-                  SizedBox(height: 8),
-                  Text(
-                    'Generate a post and tap Save Draft to see it here.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.grey),
-                  ),
+                  Text('No saved drafts yet'),
                 ],
               ),
             );
           }
 
-          return ListView.separated(
+          return ListView.builder(
             itemCount: drafts.length,
-            separatorBuilder: (_, __) => const Divider(height: 1),
             itemBuilder: (context, index) {
               final draft = drafts[index];
               return Dismissible(
@@ -58,9 +48,7 @@ class DraftHistoryScreen extends ConsumerWidget {
                     context: context,
                     builder: (dialogContext) => AlertDialog(
                       title: const Text('Delete draft?'),
-                      content: const Text(
-                        'This cannot be undone.',
-                      ),
+                      content: const Text('This cannot be undone.'),
                       actions: [
                         TextButton(
                           onPressed: () =>
@@ -77,26 +65,35 @@ class DraftHistoryScreen extends ConsumerWidget {
                   );
                 },
                 onDismissed: (_) {
-                  ref.read(draftServiceProvider).delete(draft.id);
+                  DraftService.delete(draft.id);
                 },
                 child: ListTile(
                   leading: ClipRRect(
                     borderRadius: BorderRadius.circular(6),
-                    child: Image.memory(
-                      draft.thumbnail,
-                      width: 56,
-                      height: 56,
-                      fit: BoxFit.cover,
-                    ),
+                    child: draft.thumbnail.isEmpty
+                        ? const SizedBox(
+                            width: 56,
+                            height: 56,
+                            child: ColoredBox(color: Colors.grey),
+                          )
+                        : Image.memory(
+                            draft.thumbnail,
+                            width: 56,
+                            height: 56,
+                            fit: BoxFit.cover,
+                          ),
                   ),
                   title: Text(
-                    draft.displayCaption,
+                    draft.effectiveCaption,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
                   subtitle: Text(
-                    '${draft.socialPlatform.displayName} · ${_formatDate(draft.createdAt)}',
+                    '${draft.platform} · ${_formatDate(draft.createdAt)}',
                   ),
+                  trailing: draft.isShared
+                      ? const Icon(Icons.ios_share, color: Colors.green)
+                      : null,
                   onTap: () {
                     context.push('/editor', extra: [draft]);
                   },

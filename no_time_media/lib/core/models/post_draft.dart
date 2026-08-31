@@ -8,13 +8,13 @@ part 'post_draft.g.dart';
 @HiveType(typeId: 0)
 class PostDraft extends HiveObject {
   @HiveField(0)
-  String id;
+  final String id;
 
   @HiveField(1)
-  String assetId;
+  final String assetId;
 
   @HiveField(2)
-  Uint8List thumbnail;
+  final Uint8List thumbnail;
 
   @HiveField(3)
   String caption;
@@ -23,13 +23,13 @@ class PostDraft extends HiveObject {
   List<String> hashtags;
 
   @HiveField(5)
-  String platform;
+  final String platform;
 
   @HiveField(6)
-  String engagementRationale;
+  final String engagementRationale;
 
   @HiveField(7)
-  DateTime createdAt;
+  final DateTime createdAt;
 
   @HiveField(8)
   bool isShared;
@@ -52,5 +52,5 @@ class PostDraft extends HiveObject {
 
   SocialPlatform get socialPlatform => SocialPlatform.fromString(platform);
 
-  String get displayCaption => userEditedCaption ?? caption;
+  String get effectiveCaption => userEditedCaption ?? caption;
 }

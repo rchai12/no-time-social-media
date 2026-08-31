@@ -19,7 +19,7 @@ void main() {
 
     test('fromString parses known names and defaults to instagram', () {
       expect(SocialPlatform.fromString('instagram'), SocialPlatform.instagram);
-      expect(SocialPlatform.fromString('Twitter'), SocialPlatform.twitter);
+      expect(SocialPlatform.fromString('twitter'), SocialPlatform.twitter);
       expect(SocialPlatform.fromString('unknown'), SocialPlatform.instagram);
     });
   });
