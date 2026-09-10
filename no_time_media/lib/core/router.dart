@@ -7,6 +7,7 @@ import 'package:no_time_media/features/auth/auth_screen.dart';
 import 'package:no_time_media/features/draft_history/draft_history_screen.dart';
 import 'package:no_time_media/features/photo_scan/photo_scan_screen.dart';
 import 'package:no_time_media/features/post_editor/post_editor_screen.dart';
+import 'package:no_time_media/features/settings/settings_screen.dart';
 import 'package:no_time_media/features/subscription/paywall_screen.dart';
 
 final appRouter = GoRouter(
@@ -37,6 +38,10 @@ final appRouter = GoRouter(
         GoRoute(
           path: '/drafts',
           builder: (context, state) => const DraftHistoryScreen(),
+        ),
+        GoRoute(
+          path: '/settings',
+          builder: (context, state) => const SettingsScreen(),
         ),
       ],
     ),

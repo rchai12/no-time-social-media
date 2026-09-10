@@ -13,11 +13,20 @@ class AppShell extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final location = GoRouterState.of(context).matchedLocation;
-    final index = location == '/drafts' ? 1 : 0;
+    final index = switch (location) {
+      '/drafts' => 1,
+      '/settings' => 2,
+      _ => 0,
+    };
+    final title = switch (index) {
+      1 => 'Drafts',
+      2 => 'Settings',
+      _ => 'Select Photos',
+    };
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(index == 1 ? 'Drafts' : 'Select Photos'),
+        title: Text(title),
         actions: [
           if (index == 0)
             IconButton(
@@ -44,10 +53,12 @@ class AppShell extends ConsumerWidget {
         onDestinationSelected: (i) {
           if (i == 0) context.go('/scan');
           if (i == 1) context.go('/drafts');
+          if (i == 2) context.go('/settings');
         },
         destinations: const [
           NavigationDestination(icon: Icon(Icons.photo_library), label: 'Scan'),
           NavigationDestination(icon: Icon(Icons.drafts), label: 'Drafts'),
+          NavigationDestination(icon: Icon(Icons.settings), label: 'Settings'),
         ],
       ),
     );

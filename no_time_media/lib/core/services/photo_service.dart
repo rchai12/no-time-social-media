@@ -2,6 +2,13 @@ import 'package:flutter/foundation.dart';
 import 'package:photo_manager/photo_manager.dart';
 import 'package:no_time_media/core/models/photo_entity.dart';
 
+class PhotoPermissionDeniedException implements Exception {
+  const PhotoPermissionDeniedException();
+
+  @override
+  String toString() => 'Permission denied';
+}
+
 class PhotoService {
   /// Fetches the last N photos from the device gallery, newest first.
   static Future<List<PhotoEntity>> fetchLastPhotos(int count) async {
@@ -12,7 +19,7 @@ class PhotoService {
       debugPrint('Permission status: $status');
 
       if (!status.isAuth) {
-        throw Exception('Permission denied');
+        throw const PhotoPermissionDeniedException();
       }
 
       final albums = await PhotoManager.getAssetPathList(
