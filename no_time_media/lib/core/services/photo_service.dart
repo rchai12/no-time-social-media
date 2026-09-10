@@ -9,15 +9,23 @@ class PhotoPermissionDeniedException implements Exception {
   String toString() => 'Permission denied';
 }
 
+class PhotoFetchResult {
+  const PhotoFetchResult({required this.photos, this.isLimited = false});
+
+  final List<PhotoEntity> photos;
+  final bool isLimited;
+}
+
 class PhotoService {
   /// Fetches the last N photos from the device gallery, newest first.
-  static Future<List<PhotoEntity>> fetchLastPhotos(int count) async {
+  static Future<PhotoFetchResult> fetchLastPhotos(int count) async {
     try {
       debugPrint('Checking permissions...');
 
       final status = await PhotoManager.requestPermissionExtend();
       debugPrint('Permission status: $status');
 
+      // isAuth is true for both authorized AND limited
       if (!status.isAuth) {
         throw const PhotoPermissionDeniedException();
       }
@@ -32,7 +40,9 @@ class PhotoService {
         ),
       );
 
-      if (albums.isEmpty) return [];
+      if (albums.isEmpty) {
+        return PhotoFetchResult(photos: const [], isLimited: status.isLimited);
+      }
 
       final List<AssetEntity> assets =
           await albums.first.getAssetListRange(start: 0, end: count);
@@ -61,7 +71,7 @@ class PhotoService {
         }
       }
 
-      return photos;
+      return PhotoFetchResult(photos: photos, isLimited: status.isLimited);
     } catch (e) {
       debugPrint('Error in fetchLastPhotos: $e');
       rethrow;

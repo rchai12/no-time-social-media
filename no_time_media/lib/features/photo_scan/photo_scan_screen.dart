@@ -34,6 +34,7 @@ class _PhotoScanScreenState extends ConsumerState<PhotoScanScreen> {
     final photosAsync = ref.watch(photoScanProvider);
     final generation = ref.watch(generationProvider);
     final generating = generation.isLoading;
+    final limitedAccess = ref.watch(limitedPhotoAccessProvider);
 
     ref.listen(photoScanProvider, (prev, next) {
       next.whenData((_) {
@@ -68,65 +69,66 @@ class _PhotoScanScreenState extends ConsumerState<PhotoScanScreen> {
 
     return photosAsync.when(
       data: (photos) {
-        if (photos.isEmpty) {
-          return const Center(child: Text('No photos found'));
-        }
-
         return Column(
           children: [
+            if (limitedAccess) const _LimitedAccessBanner(),
             Expanded(
-              child: GridView.builder(
-                padding: const EdgeInsets.all(8),
-                itemCount: photos.length,
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 3,
-                  crossAxisSpacing: 4,
-                  mainAxisSpacing: 4,
-                ),
-                itemBuilder: (context, index) {
-                  final photo = photos[index];
-                  return _PhotoTile(
-                    photo: photo,
-                    deselected: _deselected.contains(photo.id),
-                    onLongPress: () {
-                      HapticFeedback.mediumImpact();
-                      setState(() {
-                        if (_deselected.contains(photo.id)) {
-                          _deselected.remove(photo.id);
-                        } else {
-                          _deselected.add(photo.id);
-                        }
-                      });
-                    },
-                  );
-                },
-              ),
-            ),
-            SafeArea(
-              top: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    icon: generating
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.auto_awesome),
-                    label: const Text('Generate Posts'),
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
+              child: photos.isEmpty
+                  ? const Center(child: Text('No photos found'))
+                  : GridView.builder(
+                      padding: const EdgeInsets.all(8),
+                      itemCount: photos.length,
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 3,
+                        crossAxisSpacing: 4,
+                        mainAxisSpacing: 4,
+                      ),
+                      itemBuilder: (context, index) {
+                        final photo = photos[index];
+                        return _PhotoTile(
+                          photo: photo,
+                          deselected: _deselected.contains(photo.id),
+                          onLongPress: () {
+                            HapticFeedback.mediumImpact();
+                            setState(() {
+                              if (_deselected.contains(photo.id)) {
+                                _deselected.remove(photo.id);
+                              } else {
+                                _deselected.add(photo.id);
+                              }
+                            });
+                          },
+                        );
+                      },
                     ),
-                    onPressed: generating || !photosAsync.hasValue
-                        ? null
-                        : () => _onGenerate(photos),
+            ),
+            if (photos.isNotEmpty)
+              SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      icon: generating
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.auto_awesome),
+                      label: const Text('Generate Posts'),
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                      onPressed: generating || !photosAsync.hasValue
+                          ? null
+                          : () => _onGenerate(photos),
+                    ),
                   ),
                 ),
               ),
-            ),
           ],
         );
       },
@@ -236,6 +238,34 @@ class _PhotoTile extends StatelessWidget {
       color: tier == ScoreTier.gold
           ? const Color(0xFFFFD700)
           : const Color(0xFFC0C0C0),
+    );
+  }
+}
+
+class _LimitedAccessBanner extends StatelessWidget {
+  const _LimitedAccessBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.amber.shade100,
+      child: InkWell(
+        onTap: () => PhotoManager.presentLimited(),
+        child: const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Row(
+            children: [
+              Icon(Icons.info_outline, size: 20),
+              SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  "You've granted limited access. Tap to allow access to all photos.",
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

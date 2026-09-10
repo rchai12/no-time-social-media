@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -21,7 +22,7 @@ void main() async {
 
   const revenueCatKey = String.fromEnvironment('REVENUECAT_KEY');
   if (revenueCatKey.isNotEmpty) {
-    await Purchases.setLogLevel(LogLevel.debug);
+    await Purchases.setLogLevel(kReleaseMode ? LogLevel.warn : LogLevel.debug);
     await Purchases.configure(PurchasesConfiguration(revenueCatKey));
     final userId = Supabase.instance.client.auth.currentUser?.id;
     if (userId != null) {

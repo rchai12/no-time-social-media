@@ -1,4 +1,4 @@
-package com.notimemedia.no_time_media
+package com.notimemedia.app
 
 import io.flutter.embedding.android.FlutterActivity
 

@@ -36,4 +36,10 @@ void main() {
     await PrefsService.setPhotoCount(99);
     expect(PrefsService.photoCount, 50);
   });
+
+  test('onboarding is unseen by default and persists after mark', () async {
+    expect(PrefsService.onboardingSeen, isFalse);
+    await PrefsService.markOnboardingSeen();
+    expect(PrefsService.onboardingSeen, isTrue);
+  });
 }

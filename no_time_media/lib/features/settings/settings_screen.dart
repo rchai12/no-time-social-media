@@ -3,16 +3,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:no_time_media/core/providers/photo_scan_provider.dart';
 import 'package:no_time_media/core/providers/settings_provider.dart';
 import 'package:no_time_media/core/providers/subscription_provider.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
-
-  static final _privacyUrl = Uri.parse('https://example.com/privacy');
-  static final _termsUrl = Uri.parse('https://example.com/terms');
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -88,23 +84,16 @@ class SettingsScreen extends ConsumerWidget {
         const _SectionHeader('Legal'),
         ListTile(
           title: const Text('Privacy Policy'),
-          onTap: () => _openPlaceholder(context, _privacyUrl),
+          trailing: const Icon(Icons.open_in_new, size: 16),
+          onTap: () => context.push('/privacy'),
         ),
         ListTile(
           title: const Text('Terms of Service'),
-          onTap: () => _openPlaceholder(context, _termsUrl),
+          trailing: const Icon(Icons.open_in_new, size: 16),
+          onTap: () => context.push('/terms'),
         ),
       ],
     );
-  }
-
-  Future<void> _openPlaceholder(BuildContext context, Uri url) async {
-    final launched = await launchUrl(url, mode: LaunchMode.externalApplication);
-    if (!launched && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Legal pages will be added before launch')),
-      );
-    }
   }
 
   Future<void> _openPhotoCountSheet(BuildContext context, WidgetRef ref) {

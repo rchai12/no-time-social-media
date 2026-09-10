@@ -1,0 +1,5 @@
+# Release signing keystore (never commit)
+upload-keystore.jks
+*.jks
+no_time_media/upload-keystore.jks
+no_time_media/android/key.properties

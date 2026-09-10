@@ -97,11 +97,27 @@ class _PaywallScreenState extends ConsumerState<PaywallScreen> {
                 ),
                 const Spacer(),
                 const Text(
-                  'Payment charged to your App Store / Google Play account on confirmation. '
-                  'Subscription renews automatically unless cancelled 24 hours before the '
-                  'end of the current period.',
+                  'Payment will be charged to your Apple ID / Google Play account at '
+                  'confirmation of purchase. Subscription automatically renews unless cancelled '
+                  'at least 24 hours before the end of the current period. You can manage and '
+                  'cancel your subscription in your account settings.',
+                  style: TextStyle(fontSize: 11, color: Colors.grey),
                   textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    TextButton(
+                      onPressed: () => context.push('/privacy'),
+                      child: const Text('Privacy Policy', style: TextStyle(fontSize: 11)),
+                    ),
+                    const Text('·', style: TextStyle(color: Colors.grey)),
+                    TextButton(
+                      onPressed: () => context.push('/terms'),
+                      child: const Text('Terms of Use', style: TextStyle(fontSize: 11)),
+                    ),
+                  ],
                 ),
               ],
             ),
