@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:purchases_flutter/purchases_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:no_time_media/core/models/post_draft.dart';
 import 'app.dart';
@@ -17,6 +18,16 @@ void main() async {
   Hive.registerAdapter(PostDraftAdapter());
   await Hive.openBox<PostDraft>('drafts');
   await Hive.openBox('prefs');
+
+  const revenueCatKey = String.fromEnvironment('REVENUECAT_KEY');
+  if (revenueCatKey.isNotEmpty) {
+    await Purchases.setLogLevel(LogLevel.debug);
+    await Purchases.configure(PurchasesConfiguration(revenueCatKey));
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId != null) {
+      await Purchases.logIn(userId);
+    }
+  }
 
   runApp(
     const ProviderScope(

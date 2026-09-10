@@ -43,7 +43,7 @@ dependencies:
   hive_flutter: ^1.1.0
   share_plus: ^9.0.0
   supabase_flutter: ^2.3.0
-  # purchases_flutter: ^7.1.0
+  purchases_flutter: ^8.11.0
   cached_network_image: ^3.3.0
   image: ^4.1.0
   json_annotation: ^4.9.0

@@ -5,6 +5,7 @@ import 'package:photo_manager/photo_manager.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:no_time_media/core/models/ai_models.dart';
 import 'package:no_time_media/core/models/scored_photo.dart';
+import 'package:no_time_media/core/models/subscription_exception.dart';
 
 class AIService {
   static final SupabaseClient _supabase = Supabase.instance.client;
@@ -45,6 +46,8 @@ class AIService {
         },
       );
 
+      _throwIfSubscriptionError(response.data);
+
       final body = response.data as Map<String, dynamic>;
       final rawList = List<dynamic>.from(body['selectedPhotos'] ?? []);
       final results = rawList
@@ -62,9 +65,35 @@ class AIService {
         response: AIGenerationResponse(selectedPhotos: results),
         thumbnails: thumbnailMap,
       );
+    } on SubscriptionException {
+      rethrow;
+    } on FunctionException catch (e) {
+      if (e.status == 401) {
+        throw Exception('Session expired — please sign in again');
+      }
+      _throwIfSubscriptionError(e.details);
+      debugPrint('Error generating posts: $e');
+      rethrow;
     } catch (e) {
       debugPrint('Error generating posts: $e');
       rethrow;
+    }
+  }
+
+  static void _throwIfSubscriptionError(dynamic body) {
+    if (body is! Map) return;
+    final error = body['error'] as String?;
+    if (error == 'subscription_required') {
+      throw const SubscriptionException(SubscriptionErrorType.requiresUpgrade);
+    }
+    if (error == 'daily_limit_reached') {
+      final resetsAt = body['resets_at'] != null
+          ? DateTime.parse(body['resets_at'] as String)
+          : null;
+      throw SubscriptionException(
+        SubscriptionErrorType.dailyLimitReached,
+        resetsAt: resetsAt,
+      );
     }
   }
 }

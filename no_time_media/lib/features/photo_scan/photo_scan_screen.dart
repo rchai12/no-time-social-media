@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:photo_manager/photo_manager.dart';
 import 'package:no_time_media/core/models/post_draft.dart';
+import 'package:no_time_media/core/models/subscription_exception.dart';
 import 'package:no_time_media/core/providers/photo_scan_provider.dart';
 import 'package:no_time_media/core/models/scored_photo.dart';
 import 'package:no_time_media/core/providers/generation_provider.dart';
@@ -19,8 +20,21 @@ class PhotoScanScreen extends ConsumerWidget {
 
     ref.listen<AsyncValue<List<PostDraft>>>(generationProvider, (prev, next) {
       next.whenOrNull(
+        data: (drafts) {
+          if (drafts.isNotEmpty && context.mounted) {
+            context.push('/editor', extra: drafts);
+          }
+        },
         error: (e, _) {
-          if (context.mounted) {
+          if (!context.mounted) return;
+          if (e is SubscriptionException) {
+            switch (e.type) {
+              case SubscriptionErrorType.requiresUpgrade:
+                context.push('/paywall');
+              case SubscriptionErrorType.dailyLimitReached:
+                _showDailyLimitSheet(context, e.resetsAt);
+            }
+          } else {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(content: Text('Generation failed: $e')),
             );
@@ -30,18 +44,6 @@ class PhotoScanScreen extends ConsumerWidget {
     });
     
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Select Photos'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: () {
-              // Refresh the photo list
-              ref.invalidate(photoScanProvider);
-            },
-          ),
-        ],
-      ),
       body: photosAsync.when(
         data: (photos) {
           if (photos.isEmpty) {
@@ -97,13 +99,6 @@ class PhotoScanScreen extends ConsumerWidget {
                 await ref
                     .read(generationProvider.notifier)
                     .generatePosts(photos);
-                if (!context.mounted) return;
-                final result = ref.read(generationProvider);
-                result.whenData((drafts) {
-                  if (drafts.isNotEmpty && context.mounted) {
-                    context.push('/editor', extra: drafts);
-                  }
-                });
               },
         child: generating
             ? const SizedBox(
@@ -167,4 +162,34 @@ class PhotoScanScreen extends ConsumerWidget {
       ),
     );
   }
+}
+
+void _showDailyLimitSheet(BuildContext context, DateTime? resetsAt) {
+  showModalBottomSheet(
+    context: context,
+    builder: (_) => Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.hourglass_bottom, size: 48),
+          const SizedBox(height: 12),
+          const Text(
+            "You've used all 20 drafts for today.",
+            style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+          ),
+          if (resetsAt != null)
+            const Text(
+              'Limit resets at midnight UTC.',
+              style: TextStyle(color: Colors.grey),
+            ),
+          const SizedBox(height: 24),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    ),
+  );
 }

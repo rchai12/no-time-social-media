@@ -12,9 +12,6 @@ class DraftHistoryScreen extends ConsumerWidget {
     final draftsAsync = ref.watch(draftHistoryProvider);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Drafts'),
-      ),
       body: draftsAsync.when(
         data: (drafts) {
           if (drafts.isEmpty) {
