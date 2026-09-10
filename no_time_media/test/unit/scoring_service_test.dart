@@ -1,16 +1,36 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:google_mlkit_image_labeling/google_mlkit_image_labeling.dart';
 import 'package:no_time_media/core/models/photo_entity.dart';
 import 'package:no_time_media/core/services/scoring_service.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  ImageLabel label(String name, {double confidence = 0.9}) =>
+      ImageLabel(confidence: confidence, label: name, index: 0);
+
   group('ScoringService formulas', () {
     test('novelty is 1.0 when the top label is unique', () {
-      expect(ScoringService.noveltyScore(1, 20), 1.0);
+      expect(
+        ScoringService.noveltyScore([label('cat')], {'cat': 1}, 20),
+        1.0,
+      );
     });
 
     test('novelty falls as a label is shared across the batch', () {
-      expect(ScoringService.noveltyScore(10, 10), closeTo(0.1, 1e-9));
-      expect(ScoringService.noveltyScore(5, 10), closeTo(0.6, 1e-9));
+      expect(
+        ScoringService.noveltyScore([label('cat')], {'cat': 10}, 10),
+        closeTo(0.1, 1e-9),
+      );
+      expect(
+        ScoringService.noveltyScore([label('cat')], {'cat': 5}, 10),
+        closeTo(0.6, 1e-9),
+      );
+    });
+
+    test('empty labels use a neutral novelty of 0.5', () {
+      expect(ScoringService.noveltyScore(const [], {}, 10), 0.5);
+      expect(ScoringService.labelConfidence(const []), 0.5);
     });
 
     test('face score clamps faceCount / 3 to 0–1', () {
@@ -31,14 +51,8 @@ void main() {
     });
 
     test('composite uses spec weights', () {
-      expect(
-        ScoringService.compositeScore(1, 1, 1, 1),
-        closeTo(1.0, 1e-9),
-      );
-      expect(
-        ScoringService.compositeScore(1, 0, 0, 0),
-        closeTo(0.35, 1e-9),
-      );
+      expect(ScoringService.compositeScore(1, 1, 1, 1), closeTo(1.0, 1e-9));
+      expect(ScoringService.compositeScore(1, 0, 0, 0), closeTo(0.35, 1e-9));
     });
   });
 
@@ -46,8 +60,7 @@ void main() {
     expect(await ScoringService.scoreAll(const []), isEmpty);
   });
 
-  test('scoreAll falls back to recency-only when ML Kit is unavailable',
-      () async {
+  test('scoreAll ranks newer photos above older ones without ML Kit', () async {
     final older = PhotoEntity(
       id: 'old',
       path: '/tmp/missing-old.jpg',
@@ -68,6 +81,7 @@ void main() {
     );
 
     final scored = await ScoringService.scoreAll([older, newer]);
+    scored.sort((a, b) => b.compositeScore.compareTo(a.compositeScore));
     expect(scored.map((p) => p.id), ['new', 'old']);
     expect(scored.first.recencyScore, greaterThan(scored.last.recencyScore));
   });

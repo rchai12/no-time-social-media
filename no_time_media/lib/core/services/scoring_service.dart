@@ -1,7 +1,7 @@
 import 'dart:io';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart'
     hide InputImage;
 import 'package:google_mlkit_image_labeling/google_mlkit_image_labeling.dart';
@@ -10,84 +10,53 @@ import 'package:no_time_media/core/models/photo_entity.dart';
 import 'package:no_time_media/core/models/scored_photo.dart';
 
 class ScoringService {
-  static const _mlConcurrency = 4;
-  static const _labelConfidenceThreshold = 0.3;
-
   /// Scores the full batch so novelty can compare labels across photos.
+  /// Caller sorts the result by composite score.
   static Future<List<ScoredPhoto>> scoreAll(List<PhotoEntity> photos) async {
     if (photos.isEmpty) return [];
 
     ImageLabeler? labeler;
     FaceDetector? detector;
-    var mlReady = true;
 
     try {
       labeler = ImageLabeler(
-        options: ImageLabelerOptions(
-          confidenceThreshold: _labelConfidenceThreshold,
-        ),
+        options: ImageLabelerOptions(confidenceThreshold: 0.3),
       );
       detector = FaceDetector(
         options: FaceDetectorOptions(performanceMode: FaceDetectorMode.fast),
       );
     } catch (e) {
       debugPrint('ML Kit init failed: $e');
-      mlReady = false;
+      return _recencyOnly(photos);
     }
 
     try {
-      if (!mlReady || labeler == null || detector == null) {
-        return _recencyOnly(photos);
-      }
+      final pass1 = await _runConcurrent(photos, (photo) async {
+        final (labels, faceCount, sharpness) = await (
+          _labelPhoto(labeler!, photo),
+          _countFaces(detector!, photo),
+          _calculateSharpnessScore(photo.path),
+        ).wait;
+        return _Pass1Result(
+          labels: labels,
+          faceCount: faceCount,
+          sharpness: sharpness,
+        );
+      });
 
-      final pass1 = await _mapLimited(
-        photos,
-        _mlConcurrency,
-        (photo) => _analyzePhoto(photo, labeler!, detector!),
-      );
+      final freqMap = _buildFrequencyMap(pass1.map((r) => r.labels).toList());
+      final totalPhotos = photos.length;
 
-      return _composeScores(photos, pass1);
-    } on MissingPluginException catch (e) {
-      debugPrint('ML Kit unavailable: $e');
-      return _recencyOnly(photos);
-    } finally {
-      try {
-        await labeler?.close();
-      } catch (e) {
-        debugPrint('Error closing ImageLabeler: $e');
-      }
-      try {
-        await detector?.close();
-      } catch (e) {
-        debugPrint('Error closing FaceDetector: $e');
-      }
-    }
-  }
+      return List.generate(photos.length, (i) {
+        final photo = photos[i];
+        final result = pass1[i];
+        final recency = recencyScore(photo.dateTaken);
+        final labelConf = labelConfidence(result.labels);
+        final aesthetic = (result.sharpness + labelConf) / 2.0;
+        final novelty = noveltyScore(result.labels, freqMap, totalPhotos);
+        final faces = faceScore(result.faceCount);
 
-  static List<ScoredPhoto> _composeScores(
-    List<PhotoEntity> photos,
-    List<_Pass1Result> pass1,
-  ) {
-    final totalPhotos = photos.length;
-    final labelFrequency = <String, int>{};
-    for (final result in pass1) {
-      final label = result.topLabel;
-      if (label == null) continue;
-      labelFrequency[label] = (labelFrequency[label] ?? 0) + 1;
-    }
-
-    final scored = <ScoredPhoto>[];
-    for (var i = 0; i < photos.length; i++) {
-      final photo = photos[i];
-      final result = pass1[i];
-      final recency = recencyScore(photo.dateTaken);
-      final aesthetic = (result.sharpness + result.labelConfidence) / 2.0;
-      final novelty = result.topLabel == null
-          ? 1.0
-          : noveltyScore(labelFrequency[result.topLabel] ?? 1, totalPhotos);
-      final faces = faceScore(result.faceCount);
-      scored.add(
-        ScoredPhoto(
+        return ScoredPhoto(
           id: photo.id,
           path: photo.path,
           width: photo.width,
@@ -100,16 +69,64 @@ class ScoringService {
           noveltyScore: novelty,
           facesScore: faces,
           sharpnessScore: result.sharpness,
-        ),
-      );
+        );
+      });
+    } catch (e) {
+      debugPrint('ML Kit scoring failed: $e');
+      return _recencyOnly(photos);
+    } finally {
+      try {
+        await labeler.close();
+      } catch (e) {
+        debugPrint('Error closing ImageLabeler: $e');
+      }
+      try {
+        await detector.close();
+      } catch (e) {
+        debugPrint('Error closing FaceDetector: $e');
+      }
     }
+  }
 
-    scored.sort((a, b) => b.compositeScore.compareTo(a.compositeScore));
-    return scored;
+  static Future<List<ImageLabel>> _labelPhoto(
+    ImageLabeler labeler,
+    PhotoEntity photo,
+  ) async {
+    try {
+      final input = InputImage.fromFilePath(photo.path);
+      return await labeler.processImage(input);
+    } catch (_) {
+      return [];
+    }
+  }
+
+  static Future<int> _countFaces(
+    FaceDetector detector,
+    PhotoEntity photo,
+  ) async {
+    try {
+      final input = InputImage.fromFilePath(photo.path);
+      final faces = await detector.processImage(input);
+      return faces.length;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  static Map<String, int> _buildFrequencyMap(List<List<ImageLabel>> allLabels) {
+    final freq = <String, int>{};
+    for (final labels in allLabels) {
+      if (labels.isEmpty) continue;
+      final top = labels.reduce(
+        (a, b) => a.confidence > b.confidence ? a : b,
+      );
+      freq[top.label] = (freq[top.label] ?? 0) + 1;
+    }
+    return freq;
   }
 
   static List<ScoredPhoto> _recencyOnly(List<PhotoEntity> photos) {
-    final scored = photos.map((photo) {
+    return photos.map((photo) {
       final recency = recencyScore(photo.dateTaken);
       return ScoredPhoto(
         id: photo.id,
@@ -126,65 +143,19 @@ class ScoringService {
         sharpnessScore: 0,
       );
     }).toList();
-    scored.sort((a, b) => b.compositeScore.compareTo(a.compositeScore));
-    return scored;
   }
 
-  static Future<_Pass1Result> _analyzePhoto(
-    PhotoEntity photo,
-    ImageLabeler labeler,
-    FaceDetector detector,
-  ) async {
-    try {
-      final inputImage = InputImage.fromFilePath(photo.path);
-
-      List<ImageLabel> labels = const [];
-      try {
-        labels = await labeler.processImage(inputImage);
-      } on MissingPluginException {
-        rethrow;
-      } catch (e) {
-        debugPrint('Image labeling failed for ${photo.id}: $e');
-      }
-
-      labels = [...labels]
-        ..sort((a, b) => b.confidence.compareTo(a.confidence));
-      final top3 = labels.take(3).toList();
-      final labelConfidence = top3.isEmpty
-          ? 0.0
-          : top3.map((l) => l.confidence).reduce((a, b) => a + b) /
-                top3.length;
-      final topLabel = labels.isEmpty ? null : labels.first.label;
-
-      var faceCount = 0;
-      try {
-        final faces = await detector.processImage(inputImage);
-        faceCount = faces.length;
-      } on MissingPluginException {
-        rethrow;
-      } catch (e) {
-        debugPrint('Face detection failed for ${photo.id}: $e');
-      }
-
-      final sharpness = await _calculateSharpnessScore(photo.path);
-      return _Pass1Result(
-        topLabel: topLabel,
-        labelConfidence: labelConfidence,
-        faceCount: faceCount,
-        sharpness: sharpness,
-      );
-    } on MissingPluginException {
-      rethrow;
-    } catch (e) {
-      debugPrint('Error analyzing photo ${photo.id}: $e');
-      final sharpness = await _calculateSharpnessScore(photo.path);
-      return _Pass1Result(
-        topLabel: null,
-        labelConfidence: 0,
-        faceCount: 0,
-        sharpness: sharpness,
-      );
+  static Future<List<T>> _runConcurrent<T>(
+    List<PhotoEntity> photos,
+    Future<T> Function(PhotoEntity) task, {
+    int concurrency = 4,
+  }) async {
+    final results = <T>[];
+    for (var i = 0; i < photos.length; i += concurrency) {
+      final chunk = photos.sublist(i, min(i + concurrency, photos.length));
+      results.addAll(await Future.wait(chunk.map(task)));
     }
+    return results;
   }
 
   /// Linear recency over a 72-hour window. Older than 72h → 0.0.
@@ -195,13 +166,28 @@ class ScoringService {
     return 1.0 - (hours / 72.0);
   }
 
-  /// Unique top label → 1.0; a label shared by every photo → 1 / totalPhotos.
-  static double noveltyScore(int frequency, int totalPhotos) {
-    if (totalPhotos <= 0) return 0.0;
-    return (1 - ((frequency - 1) / totalPhotos)).clamp(0.0, 1.0);
+  static double labelConfidence(List<ImageLabel> labels) {
+    if (labels.isEmpty) return 0.5;
+    final top3 = (labels.toList()
+          ..sort((a, b) => b.confidence.compareTo(a.confidence)))
+        .take(3)
+        .toList();
+    return top3.map((l) => l.confidence).reduce((a, b) => a + b) / top3.length;
   }
 
-  /// 1–3 faces approach the max; 0 faces → 0.0.
+  static double noveltyScore(
+    List<ImageLabel> labels,
+    Map<String, int> freqMap,
+    int totalPhotos,
+  ) {
+    if (labels.isEmpty || totalPhotos <= 0) return 0.5;
+    final top = labels.reduce(
+      (a, b) => a.confidence > b.confidence ? a : b,
+    );
+    final frequency = freqMap[top.label] ?? 1;
+    return 1.0 - ((frequency - 1) / totalPhotos.toDouble()).clamp(0.0, 1.0);
+  }
+
   static double faceScore(int faceCount) {
     return (faceCount / 3.0).clamp(0.0, 1.0);
   }
@@ -264,41 +250,16 @@ class ScoringService {
       return 0.0;
     }
   }
-
-  static Future<List<T>> _mapLimited<T, E>(
-    List<E> items,
-    int maxConcurrent,
-    Future<T> Function(E item) mapper,
-  ) async {
-    if (items.isEmpty) return [];
-    final limit = maxConcurrent.clamp(1, items.length);
-    final results = List<T?>.filled(items.length, null);
-    var nextIndex = 0;
-
-    Future<void> worker() async {
-      while (true) {
-        final i = nextIndex;
-        nextIndex += 1;
-        if (i >= items.length) return;
-        results[i] = await mapper(items[i]);
-      }
-    }
-
-    await Future.wait(List.generate(limit, (_) => worker()));
-    return results.cast<T>();
-  }
 }
 
 class _Pass1Result {
   const _Pass1Result({
-    required this.topLabel,
-    required this.labelConfidence,
+    required this.labels,
     required this.faceCount,
     required this.sharpness,
   });
 
-  final String? topLabel;
-  final double labelConfidence;
+  final List<ImageLabel> labels;
   final int faceCount;
   final double sharpness;
 }

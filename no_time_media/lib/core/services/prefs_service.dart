@@ -1,26 +1,16 @@
 import 'package:hive_flutter/hive_flutter.dart';
 
 class PrefsService {
-  static const boxName = 'prefs';
-  static const photoCountKey = 'defaultPhotoCount';
-  static const defaultPhotoCount = 20;
-  static const minPhotoCount = 10;
-  static const maxPhotoCount = 50;
+  static Box<dynamic> get _box => Hive.box('prefs');
 
-  static Box<dynamic> get _box => Hive.box(boxName);
+  static const _keyPhotoCount = 'defaultPhotoCount';
 
-  static int getDefaultPhotoCount() {
-    final value = _box.get(photoCountKey, defaultValue: defaultPhotoCount);
-    if (value is int) {
-      return value.clamp(minPhotoCount, maxPhotoCount).toInt();
-    }
-    return defaultPhotoCount;
+  static int get photoCount {
+    final value = _box.get(_keyPhotoCount) as int?;
+    return (value ?? 20).clamp(10, 50).toInt();
   }
 
-  static Future<void> setDefaultPhotoCount(int count) async {
-    await _box.put(
-      photoCountKey,
-      count.clamp(minPhotoCount, maxPhotoCount).toInt(),
-    );
+  static Future<void> setPhotoCount(int count) async {
+    await _box.put(_keyPhotoCount, count.clamp(10, 50).toInt());
   }
 }

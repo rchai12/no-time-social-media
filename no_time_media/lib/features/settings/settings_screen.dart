@@ -1,144 +1,191 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:no_time_media/core/providers/photo_count_provider.dart';
-import 'package:no_time_media/core/services/prefs_service.dart';
-import 'package:no_time_media/core/services/subscription_service.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:no_time_media/core/providers/photo_scan_provider.dart';
+import 'package:no_time_media/core/providers/settings_provider.dart';
+import 'package:no_time_media/core/providers/subscription_provider.dart';
 
-class SettingsScreen extends ConsumerStatefulWidget {
+class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
 
-  @override
-  ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
-}
-
-class _SettingsScreenState extends ConsumerState<SettingsScreen> {
-  int? _draggingCount;
-  late final Future<bool> _isProFuture = _subscriptionIsPro();
-
-  Future<void> _signOut() async {
-    await Supabase.instance.client.auth.signOut();
-    try {
-      await Purchases.logOut();
-    } catch (_) {
-      // RevenueCat may be unconfigured in local/dev builds.
-    }
-  }
+  static final _privacyUrl = Uri.parse('https://example.com/privacy');
+  static final _termsUrl = Uri.parse('https://example.com/terms');
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final count = ref.watch(photoCountProvider);
-    final sliderValue = (_draggingCount ?? count).toDouble();
+    final subscription = ref.watch(subscriptionProvider);
 
     return ListView(
-      padding: const EdgeInsets.symmetric(vertical: 8),
       children: [
-        const ListTile(
-          title: Text('Photos to scan'),
-          subtitle: Text('How many recent photos to score (10–50)'),
+        const _SectionHeader('Scanning'),
+        ListTile(
+          title: const Text('Photos to scan'),
+          subtitle: Text('$count photos'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => _openPhotoCountSheet(context, ref),
         ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Row(
-            children: [
-              Text('${sliderValue.round()}'),
-              Expanded(
-                child: Slider(
-                  min: PrefsService.minPhotoCount.toDouble(),
-                  max: PrefsService.maxPhotoCount.toDouble(),
-                  divisions: PrefsService.maxPhotoCount - PrefsService.minPhotoCount,
-                  label: '${sliderValue.round()}',
-                  value: sliderValue,
-                  onChanged: (value) {
-                    setState(() => _draggingCount = value.round());
-                  },
-                  onChangeEnd: (value) {
-                    ref.read(photoCountProvider.notifier).setCount(value.round());
-                    setState(() => _draggingCount = null);
-                  },
+        const Divider(),
+        const _SectionHeader('Subscription'),
+        subscription.when(
+          data: (isPro) => isPro
+              ? const ListTile(
+                  leading: Icon(Icons.star, color: Color(0xFFFFD700)),
+                  title: Text('Pro Plan'),
+                  subtitle: Text('20 generations per day'),
+                  trailing: Text(
+                    'Active',
+                    style: TextStyle(
+                      color: Colors.green,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                )
+              : ListTile(
+                  leading: const Icon(Icons.star_outline),
+                  title: const Text('Free Plan'),
+                  subtitle: const Text('3 generations per month'),
+                  trailing: ElevatedButton(
+                    onPressed: () => context.push('/paywall'),
+                    child: const Text('Upgrade'),
+                  ),
                 ),
-              ),
-            ],
+          loading: () => const ListTile(
+            leading: Icon(Icons.star_outline),
+            title: Text('Subscription'),
+            subtitle: Text('Checking…'),
+          ),
+          error: (_, _) => ListTile(
+            leading: const Icon(Icons.star_outline),
+            title: const Text('Free Plan'),
+            subtitle: const Text('3 generations per month'),
+            trailing: ElevatedButton(
+              onPressed: () => context.push('/paywall'),
+              child: const Text('Upgrade'),
+            ),
           ),
         ),
         const Divider(),
-        FutureBuilder<bool>(
-          future: _isProFuture,
-          builder: (context, snapshot) {
-            final isPro = snapshot.data == true;
-            return ListTile(
-              leading: Icon(isPro ? Icons.workspace_premium : Icons.person_outline),
-              title: const Text('Subscription'),
-              subtitle: Text(
-                snapshot.connectionState == ConnectionState.waiting
-                    ? 'Checking…'
-                    : (isPro ? 'Pro' : 'Free'),
-              ),
-            );
+        const _SectionHeader('Account'),
+        ListTile(
+          title: const Text(
+            'Sign Out',
+            style: TextStyle(color: Colors.red),
+          ),
+          onTap: () async {
+            await Supabase.instance.client.auth.signOut();
+            try {
+              await Purchases.logOut();
+            } catch (_) {
+              // RevenueCat may be unconfigured in local/dev builds.
+            }
           },
         ),
         const Divider(),
+        const _SectionHeader('Legal'),
         ListTile(
-          leading: const Icon(Icons.logout),
-          title: const Text('Sign out'),
-          onTap: _signOut,
-        ),
-        const Divider(),
-        ListTile(
-          leading: const Icon(Icons.privacy_tip_outlined),
           title: const Text('Privacy Policy'),
-          onTap: () => _openLegal(
-            context,
-            title: 'Privacy Policy',
-            body:
-                'No Time Media reads photos on your device to score them locally. '
-                'Only 256×256 thumbnails of photos you choose to generate posts from '
-                'are sent to our servers. Photos are never stored on our servers. '
-                'Your account ID is used for sign-in and subscription management. '
-                'Payments are processed by the App Store or Google Play via RevenueCat.',
-          ),
+          onTap: () => _openPlaceholder(context, _privacyUrl),
         ),
         ListTile(
-          leading: const Icon(Icons.gavel_outlined),
-          title: const Text('Terms of Use'),
-          onTap: () => _openLegal(
-            context,
-            title: 'Terms of Use',
-            body:
-                'Payment is charged to your App Store or Google Play account on confirmation. '
-                'Subscriptions renew automatically unless cancelled at least 24 hours before '
-                'the end of the current period. Manage or cancel in your store account settings. '
-                'Free accounts may generate a limited number of AI posts per month. '
-                'Pro accounts may generate up to 20 AI posts per day.',
-          ),
+          title: const Text('Terms of Service'),
+          onTap: () => _openPlaceholder(context, _termsUrl),
         ),
       ],
     );
   }
 
-  Future<bool> _subscriptionIsPro() async {
-    try {
-      return await SubscriptionService.isPro();
-    } catch (_) {
-      return false;
+  Future<void> _openPlaceholder(BuildContext context, Uri url) async {
+    final launched = await launchUrl(url, mode: LaunchMode.externalApplication);
+    if (!launched && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Legal pages will be added before launch')),
+      );
     }
   }
 
-  void _openLegal(
-    BuildContext context, {
-    required String title,
-    required String body,
-  }) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => Scaffold(
-          appBar: AppBar(title: Text(title)),
-          body: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Text(body, style: const TextStyle(fontSize: 16, height: 1.4)),
+  Future<void> _openPhotoCountSheet(BuildContext context, WidgetRef ref) {
+    return showModalBottomSheet<void>(
+      context: context,
+      builder: (_) => _PhotoCountSheet(
+        initialCount: ref.read(photoCountProvider),
+      ),
+    );
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader(this.title);
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+      child: Text(
+        title.toUpperCase(),
+        style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              color: Colors.grey,
+              fontWeight: FontWeight.w600,
+            ),
+      ),
+    );
+  }
+}
+
+class _PhotoCountSheet extends ConsumerStatefulWidget {
+  const _PhotoCountSheet({required this.initialCount});
+
+  final int initialCount;
+
+  @override
+  ConsumerState<_PhotoCountSheet> createState() => _PhotoCountSheetState();
+}
+
+class _PhotoCountSheetState extends ConsumerState<_PhotoCountSheet> {
+  late double _value = widget.initialCount.toDouble();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text(
+            'How many photos should the app scan?',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
           ),
-        ),
+          const SizedBox(height: 16),
+          Slider(
+            min: 10,
+            max: 50,
+            divisions: 8,
+            label: '${_value.round()}',
+            value: _value,
+            onChanged: (value) => setState(() => _value = value),
+          ),
+          Text('Scanning ${_value.round()} photos'),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () async {
+                await ref
+                    .read(photoCountProvider.notifier)
+                    .setCount(_value.round());
+                ref.invalidate(photoScanProvider);
+                if (context.mounted) Navigator.pop(context);
+              },
+              child: const Text('Save'),
+            ),
+          ),
+        ],
       ),
     );
   }

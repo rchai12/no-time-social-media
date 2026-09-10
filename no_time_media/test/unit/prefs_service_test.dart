@@ -10,7 +10,7 @@ void main() {
   setUp(() async {
     tempDir = await Directory.systemTemp.createTemp('ntm_prefs_');
     Hive.init(tempDir.path);
-    await Hive.openBox(PrefsService.boxName);
+    await Hive.openBox('prefs');
   });
 
   tearDown(() async {
@@ -21,19 +21,19 @@ void main() {
   });
 
   test('default photo count is 20', () {
-    expect(PrefsService.getDefaultPhotoCount(), 20);
+    expect(PrefsService.photoCount, 20);
   });
 
   test('persists a value in the 10–50 range', () async {
-    await PrefsService.setDefaultPhotoCount(35);
-    expect(PrefsService.getDefaultPhotoCount(), 35);
+    await PrefsService.setPhotoCount(35);
+    expect(PrefsService.photoCount, 35);
   });
 
   test('clamps values outside 10–50', () async {
-    await PrefsService.setDefaultPhotoCount(3);
-    expect(PrefsService.getDefaultPhotoCount(), 10);
+    await PrefsService.setPhotoCount(3);
+    expect(PrefsService.photoCount, 10);
 
-    await PrefsService.setDefaultPhotoCount(99);
-    expect(PrefsService.getDefaultPhotoCount(), 50);
+    await PrefsService.setPhotoCount(99);
+    expect(PrefsService.photoCount, 50);
   });
 }

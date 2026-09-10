@@ -22,6 +22,13 @@ class PhotoScanScreen extends ConsumerStatefulWidget {
 class _PhotoScanScreenState extends ConsumerState<PhotoScanScreen> {
   final Set<String> _deselected = {};
 
+  Future<void> _onGenerate(List<ScoredPhoto> photos) {
+    final selected =
+        photos.where((photo) => !_deselected.contains(photo.id)).toList();
+    if (selected.isEmpty) return Future.value();
+    return ref.read(generationProvider.notifier).generatePosts(selected);
+  }
+
   @override
   Widget build(BuildContext context) {
     final photosAsync = ref.watch(photoScanProvider);
@@ -65,10 +72,6 @@ class _PhotoScanScreenState extends ConsumerState<PhotoScanScreen> {
           return const Center(child: Text('No photos found'));
         }
 
-        final selected = photos
-            .where((photo) => !_deselected.contains(photo.id))
-            .toList();
-
         return Column(
           children: [
             Expanded(
@@ -84,7 +87,6 @@ class _PhotoScanScreenState extends ConsumerState<PhotoScanScreen> {
                   final photo = photos[index];
                   return _PhotoTile(
                     photo: photo,
-                    tier: scoreTierForIndex(index, photos.length),
                     deselected: _deselected.contains(photo.id),
                     onLongPress: () {
                       HapticFeedback.mediumImpact();
@@ -103,15 +105,10 @@ class _PhotoScanScreenState extends ConsumerState<PhotoScanScreen> {
             SafeArea(
               top: false,
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
                 child: SizedBox(
                   width: double.infinity,
-                  child: FilledButton.icon(
-                    onPressed: generating || selected.isEmpty
-                        ? null
-                        : () => ref
-                            .read(generationProvider.notifier)
-                            .generatePosts(selected),
+                  child: ElevatedButton.icon(
                     icon: generating
                         ? const SizedBox(
                             width: 18,
@@ -120,6 +117,12 @@ class _PhotoScanScreenState extends ConsumerState<PhotoScanScreen> {
                           )
                         : const Icon(Icons.auto_awesome),
                     label: const Text('Generate Posts'),
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                    onPressed: generating || !photosAsync.hasValue
+                        ? null
+                        : () => _onGenerate(photos),
                   ),
                 ),
               ),
@@ -127,12 +130,27 @@ class _PhotoScanScreenState extends ConsumerState<PhotoScanScreen> {
           ],
         );
       },
-      loading: () => const _ShimmerGrid(),
-      error: (error, stackTrace) {
-        if (error is PhotoPermissionDeniedException) {
-          return _PermissionDeniedView(
-            onRetry: () => ref.invalidate(photoScanProvider),
-          );
+      loading: () => GridView.builder(
+        padding: const EdgeInsets.all(8),
+        itemCount: 20,
+        physics: const NeverScrollableScrollPhysics(),
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 3,
+          crossAxisSpacing: 4,
+          mainAxisSpacing: 4,
+        ),
+        itemBuilder: (context, index) => Shimmer.fromColors(
+          baseColor: Colors.grey.shade300,
+          highlightColor: Colors.grey.shade100,
+          child: Container(color: Colors.white),
+        ),
+      ),
+      error: (error, _) {
+        final isPermission = error is PhotoPermissionDeniedException ||
+            error.toString().contains('Permission denied') ||
+            error.toString().contains('denied');
+        if (isPermission) {
+          return const _PermissionDeniedView();
         }
         return Center(
           child: Column(
@@ -140,7 +158,7 @@ class _PhotoScanScreenState extends ConsumerState<PhotoScanScreen> {
             children: [
               const Icon(Icons.error_outline, size: 48),
               const SizedBox(height: 16),
-              Text('Error loading photos: $error'),
+              Text('Error: $error'),
               const SizedBox(height: 16),
               ElevatedButton(
                 onPressed: () => ref.invalidate(photoScanProvider),
@@ -157,13 +175,11 @@ class _PhotoScanScreenState extends ConsumerState<PhotoScanScreen> {
 class _PhotoTile extends StatelessWidget {
   const _PhotoTile({
     required this.photo,
-    required this.tier,
     required this.deselected,
     required this.onLongPress,
   });
 
   final ScoredPhoto photo;
-  final ScoreTier tier;
   final bool deselected;
   final VoidCallback onLongPress;
 
@@ -182,116 +198,89 @@ class _PhotoTile extends StatelessWidget {
               height: photo.height,
             ).thumbnailDataWithSize(const ThumbnailSize(200, 200)),
             builder: (context, snapshot) {
-              Widget image;
               if (snapshot.hasData && snapshot.data != null) {
-                image = Image.memory(snapshot.data!, fit: BoxFit.cover);
-              } else if (snapshot.hasError) {
-                image = const ColoredBox(
+                return Image.memory(snapshot.data!, fit: BoxFit.cover);
+              }
+              if (snapshot.hasError) {
+                return const ColoredBox(
                   color: Colors.grey,
                   child: Icon(Icons.broken_image, color: Colors.white),
                 );
-              } else {
-                image = const ColoredBox(color: Colors.grey);
               }
-
-              if (!deselected) return image;
-              return ColorFiltered(
-                colorFilter: const ColorFilter.mode(
-                  Colors.grey,
-                  BlendMode.saturation,
-                ),
-                child: Opacity(opacity: 0.55, child: image),
-              );
+              return const ColoredBox(color: Colors.grey);
             },
           ),
-          if (tier != ScoreTier.none)
-            Positioned(
-              top: 4,
-              right: 4,
-              child: Icon(
-                Icons.star,
-                size: 20,
-                color: tier == ScoreTier.gold
-                    ? const Color(0xFFFFD700)
-                    : const Color(0xFFC0C0C0),
-                shadows: const [
-                  Shadow(color: Colors.black54, blurRadius: 4),
-                ],
-              ),
-            ),
+          Positioned(
+            top: 4,
+            right: 4,
+            child: _scoreBadge(photo.compositeScore),
+          ),
           if (deselected)
-            const ColoredBox(
-              color: Color(0x66000000),
-              child: Icon(Icons.remove_circle, color: Colors.white70),
+            const Positioned.fill(
+              child: ColoredBox(
+                color: Color(0x80000000),
+                child: Icon(Icons.close, color: Colors.white),
+              ),
             ),
         ],
       ),
     );
   }
-}
 
-class _ShimmerGrid extends StatelessWidget {
-  const _ShimmerGrid();
-
-  @override
-  Widget build(BuildContext context) {
-    return GridView.builder(
-      padding: const EdgeInsets.all(8),
-      itemCount: 12,
-      physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        crossAxisSpacing: 4,
-        mainAxisSpacing: 4,
-      ),
-      itemBuilder: (context, index) {
-        return Shimmer.fromColors(
-          baseColor: Colors.grey.shade300,
-          highlightColor: Colors.grey.shade100,
-          child: const ColoredBox(color: Colors.white),
-        );
-      },
+  Widget _scoreBadge(double score) {
+    final tier = scoreTierForScore(score);
+    if (tier == ScoreTier.none) return const SizedBox.shrink();
+    return Icon(
+      Icons.star_rounded,
+      size: 20,
+      color: tier == ScoreTier.gold
+          ? const Color(0xFFFFD700)
+          : const Color(0xFFC0C0C0),
     );
   }
 }
 
 class _PermissionDeniedView extends StatelessWidget {
-  const _PermissionDeniedView({required this.onRetry});
-
-  final VoidCallback onRetry;
+  const _PermissionDeniedView();
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(Icons.photo_library_outlined, size: 64),
-          const SizedBox(height: 16),
-          Text(
-            'Photo access is required',
-            style: Theme.of(context).textTheme.titleLarge,
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            'No Time Media needs access to your photos to score and select '
-            'the best ones for your posts.',
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 24),
-          FilledButton(
-            onPressed: () => PhotoManager.openSetting(),
-            child: const Text('Open Settings'),
-          ),
-          const SizedBox(height: 8),
-          TextButton(
-            onPressed: onRetry,
-            child: const Text('Retry'),
-          ),
-        ],
+    return const Center(
+      child: Padding(
+        padding: EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.photo_library_outlined, size: 64, color: Colors.grey),
+            SizedBox(height: 16),
+            Text(
+              'Photo Access Required',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            ),
+            SizedBox(height: 8),
+            Text(
+              'No Time Media needs access to your photo library to find and score your best photos.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.grey),
+            ),
+            SizedBox(height: 24),
+            _OpenSettingsButton(),
+          ],
+        ),
       ),
+    );
+  }
+}
+
+class _OpenSettingsButton extends StatelessWidget {
+  const _OpenSettingsButton();
+
+  @override
+  Widget build(BuildContext context) {
+    return ElevatedButton.icon(
+      icon: const Icon(Icons.settings),
+      label: const Text('Open Settings'),
+      onPressed: () => PhotoManager.openSetting(),
     );
   }
 }
