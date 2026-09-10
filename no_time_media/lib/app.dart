@@ -1,10 +1,6 @@
 import 'package:flutter/material.dart';
 import 'core/router.dart' as router;
 
-void main() {
-  runApp(const NoTimeMediaApp());
-}
-
 class NoTimeMediaApp extends StatelessWidget {
   const NoTimeMediaApp({super.key});
 

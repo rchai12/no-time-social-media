@@ -1,0 +1,5 @@
+{
+  "name": "No Time Media",
+  "snapshot": "snapshot-20260831-7274b97f-7b25-4cd7-bc50-afc9a52aaf41",
+  "install": "bash .cursor/install.sh"
+}

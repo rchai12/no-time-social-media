@@ -1,31 +1,55 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { corsHeaders } from "../_shared/cors.ts";
-import { supabaseClient } from "../_shared/supabaseClient.ts";
+import { supabaseAdmin } from "../_shared/supabaseClient.ts";
+import { getProvider } from "./providers/index.ts";
+import type {
+  AIProvider,
+  GenerationResponse,
+  PhotoInput,
+} from "./providers/types.ts";
 
-// Define the input and output types for the AI generation request
-interface AIInput {
-  photos: Array<{
-    id: string;
-    path: string;
-    dateTaken: string; 
-    score: number;
-    components: {
-      recency: number;
-      aesthetic: number;
-      novelty: number;
-      faces: number;
-    };
-  }>;
+const SYSTEM_PROMPT = `You are a social media content curator for an Instagram-focused app.
+
+You will receive between 1 and 20 photo thumbnails, each identified by an assetId.
+
+Your tasks:
+1. Select the best 1–4 photos based on visual quality, composition, and engagement potential.
+2. For each selected photo write a caption (no hashtags) and exactly 5 relevant hashtags (no '#' prefix).
+3. Identify the best platform (instagram | twitter | facebook | tiktok) and explain why in one sentence.
+
+Respond ONLY with valid JSON in this exact shape, with no markdown fences:
+{
+  "selectedPhotos": [
+    {
+      "assetId": "string",
+      "caption": "string",
+      "hashtags": ["string","string","string","string","string"],
+      "bestPlatform": "instagram",
+      "engagementRationale": "string"
+    }
+  ]
+}`;
+
+function jsonResponse(body: unknown, status: number): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
 }
 
-interface AIOutput {
-  captions: Array<string>;
-  hashtags: Array<string>;
-  platforms: Array<{
-    platform: string;
-    caption: string;
-    post_type: 'image' | 'video';
-  }>;
+async function generateWithRetry(
+  provider: AIProvider,
+  photos: PhotoInput[],
+  systemPrompt: string,
+  platform: "instagram" | "twitter" | "facebook" | "tiktok",
+): Promise<GenerationResponse> {
+  try {
+    return await provider.generate(photos, systemPrompt, platform);
+  } catch (_e) {
+    const correctionPrompt =
+      systemPrompt +
+      "\n\nIMPORTANT: You MUST respond with valid JSON only. No markdown, no explanation.";
+    return await provider.generate(photos, correctionPrompt, platform);
+  }
 }
 
 Deno.serve(async (req) => {
@@ -34,94 +58,113 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { photos } = await req.json() as AIInput;
-    
-    // Validate input
-    if (!photos || !Array.isArray(photos)) {
-      return new Response(
-        JSON.stringify({ error: "Invalid input - photos must be an array" }),
-        {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-          status: 400,
-        }
+    const body = await req.json();
+    const photos = body.photos as PhotoInput[] | undefined;
+    const targetPlatform = (body.targetPlatform as string | undefined) ??
+      "instagram";
+
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader?.startsWith("Bearer ")) {
+      return jsonResponse({ error: "unauthorized" }, 401);
+    }
+    const token = authHeader.replace("Bearer ", "");
+    const { data: { user }, error: authError } = await supabaseAdmin.auth
+      .getUser(token);
+    if (authError || !user) {
+      return jsonResponse({ error: "unauthorized" }, 401);
+    }
+    const userId = user.id;
+
+    if (!photos || !Array.isArray(photos) || photos.length === 0) {
+      return jsonResponse({
+        error: "invalid_request",
+        detail: "photos must be a non-empty array",
+      }, 400);
+    }
+
+    if (photos.length > 20) {
+      return jsonResponse({
+        error: "invalid_request",
+        detail: "photos array must contain 1–20 items",
+      }, 400);
+    }
+
+    const { data: sub } = await supabaseAdmin
+      .from("subscriptions")
+      .select("tier")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    const tier = sub?.tier ?? "free";
+    const isPro = tier === "pro";
+    const limit = isPro ? 20 : 3;
+
+    let currentUsage = 0;
+
+    if (isPro) {
+      const today = new Date().toISOString().substring(0, 10);
+      const { data: usage } = await supabaseAdmin
+        .from("usage_daily")
+        .select("count")
+        .eq("user_id", userId)
+        .eq("date", today)
+        .maybeSingle();
+      currentUsage = usage?.count ?? 0;
+    } else {
+      const firstOfMonth = new Date();
+      firstOfMonth.setUTCDate(1);
+      const firstOfMonthStr = firstOfMonth.toISOString().substring(0, 10);
+
+      const { data: rows } = await supabaseAdmin
+        .from("usage_daily")
+        .select("count")
+        .eq("user_id", userId)
+        .gte("date", firstOfMonthStr);
+
+      currentUsage = (rows ?? []).reduce(
+        (sum: number, r: { count?: number }) => sum + (r.count ?? 0),
+        0,
       );
     }
 
-    // Generate captions and hashtags using Gemini API
-    const generatedCaptions: string[] = [];
-    const generatedHashtags: string[] = [];
-    const platforms: Array<{
-      platform: string;
-      caption: string;
-      post_type: 'image' | 'video';
-    }> = [];
-
-    // For each photo, generate content for multiple platforms
-    for (const photo of photos) {
-      try {
-        // Simulated AI generation - in real implementation this would call Gemini API
-        const simulatedCaption = `Beautiful photo from ${photo.dateTaken} with score ${photo.score}`;
-        const simulatedHashtag = `#photo${Math.floor(Math.random() * 1000)}`;
-        
-        generatedCaptions.push(simulatedCaption);
-        generatedHashtags.push(simulatedHashtag);
-        
-        // Generate platform-specific content
-        platforms.push({
-          platform: "instagram",
-          caption: `${simulatedCaption} ${simulatedHashtag}`,
-          post_type: 'image'
-        });
-        
-        platforms.push({
-          platform: "twitter",
-          caption: `${simulatedCaption.substring(0, 100)}... ${simulatedHashtag}`,
-          post_type: 'image'
-        });
-      } catch (error) {
-        console.error(`Error generating content for photo ${photo.id}:`, error);
-        // For this demo, we'll still add empty entries to maintain structure
-        generatedCaptions.push("");
-        generatedHashtags.push("");
-        platforms.push({
-          platform: "instagram",
-          caption: "",
-          post_type: 'image'
-        });
+    if (currentUsage >= limit) {
+      if (isPro) {
+        const tomorrow = new Date();
+        tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+        tomorrow.setUTCHours(0, 0, 0, 0);
+        return jsonResponse({
+          error: "daily_limit_reached",
+          limit,
+          resets_at: tomorrow.toISOString(),
+        }, 429);
       }
+      return jsonResponse({ error: "subscription_required" }, 402);
     }
 
-    const response: AIOutput = {
-      captions: generatedCaptions,
-      hashtags: generatedHashtags,
-      platforms
-    };
-
-    return new Response(JSON.stringify(response), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-      status: 200,
+    const today = new Date().toISOString().substring(0, 10);
+    await supabaseAdmin.rpc("increment_usage", {
+      p_user_id: userId,
+      p_date: today,
     });
+
+    const platform = (
+      ["instagram", "twitter", "facebook", "tiktok"].includes(targetPlatform)
+        ? targetPlatform
+        : "instagram"
+    ) as "instagram" | "twitter" | "facebook" | "tiktok";
+
+    const provider = getProvider();
+    const result = await generateWithRetry(
+      provider,
+      photos,
+      SYSTEM_PROMPT,
+      platform,
+    );
+
+    return jsonResponse(result, 200);
   } catch (error) {
     console.error("Error in AI generation function:", error);
-    
-    return new Response(
-      JSON.stringify({ error: "Failed to generate AI content" }),
-      {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 500,
-      }
-    );
+    const detail = error instanceof Error ? error.message : String(error);
+    return jsonResponse({ error: "ai_error", detail }, 500);
   }
 });
-
-// This is a simplified version since we can't actually call Gemini in this environment
-// Actual implementation would look like:
-/*
-// For production, you'd include proper Gemini API call here:
-import { GoogleGenerativeAI } from "https://esm.sh/@google/generative-ai";
-
-const genAI = new GoogleGenerativeAI(Deno.env.get("GOOGLE_API_KEY") || "");
-const model = genAI.getGenerativeModel({ model: "gemini-pro" });
-
-// Then call the model with appropriate prompt
-*/

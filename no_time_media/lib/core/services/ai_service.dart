@@ -1,53 +1,99 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
+import 'package:photo_manager/photo_manager.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:no_time_media/core/models/ai_models.dart';
+import 'package:no_time_media/core/models/scored_photo.dart';
+import 'package:no_time_media/core/models/subscription_exception.dart';
 
 class AIService {
   static final SupabaseClient _supabase = Supabase.instance.client;
 
-  /// Triggers the edge function to generate AI posts from photos
-  static Future<AIGenerationResponse> generatePosts(List<PhotoInfo> photos) async {
+  static Future<GenerationBundle> generatePosts(
+    List<ScoredPhoto> photos,
+  ) async {
     try {
+      final photoInputs = <Map<String, dynamic>>[];
+      final thumbnailMap = <String, Uint8List>{};
+
+      for (final photo in photos) {
+        final entity = AssetEntity(
+          id: photo.id,
+          typeInt: 1,
+          width: photo.width,
+          height: photo.height,
+        );
+        final bytes =
+            await entity.thumbnailDataWithSize(const ThumbnailSize(256, 256));
+        if (bytes == null) continue;
+        thumbnailMap[photo.id] = bytes;
+        photoInputs.add({
+          'assetId': photo.id,
+          'thumbnailBase64': base64Encode(bytes),
+          'compositeScore': photo.compositeScore,
+          'dateTaken': photo.dateTaken.toIso8601String(),
+        });
+      }
+
+      if (photoInputs.isEmpty) throw Exception('No thumbnails available');
+
       final response = await _supabase.functions.invoke(
         'generate-post',
         body: {
-          'photos': photos.map((photo) => {
-            'id': photo.id,
-            'path': photo.path,
-            'dateTaken': photo.dateTaken.toIso8601String(),
-            'score': photo.score,
-            'components': {
-              'recency': photo.components.recency,
-              'aesthetic': photo.components.aesthetic,
-              'novelty': photo.components.novelty,
-              'faces': photo.components.faces,
-            }
-          }).toList(),
+          'photos': photoInputs,
+          'targetPlatform': 'instagram',
         },
       );
 
-      // Parse the response
-      final responseBody = response.data as Map<String, dynamic>;
-      final captions = List<String>.from(responseBody['captions'] ?? []);
-      final hashtags = List<String>.from(responseBody['hashtags'] ?? []);
-      final platformsData = List<dynamic>.from(responseBody['platforms'] ?? []);
+      _throwIfSubscriptionError(response.data);
 
-      final platforms = platformsData
-          .map((data) => PlatformContent(
-                platform: data['platform'],
-                caption: data['caption'],
-                postType: data['post_type'],
+      final body = response.data as Map<String, dynamic>;
+      final rawList = List<dynamic>.from(body['selectedPhotos'] ?? []);
+      final results = rawList
+          .map((r) => PhotoResult(
+                assetId: r['assetId'] as String,
+                caption: r['caption'] as String,
+                hashtags: List<String>.from(r['hashtags'] ?? []),
+                bestPlatform: r['bestPlatform'] as String,
+                engagementRationale:
+                    r['engagementRationale'] as String? ?? '',
               ))
           .toList();
 
-      return AIGenerationResponse(
-        captions: captions,
-        hashtags: hashtags,
-        platforms: platforms,
+      return GenerationBundle(
+        response: AIGenerationResponse(selectedPhotos: results),
+        thumbnails: thumbnailMap,
       );
+    } on SubscriptionException {
+      rethrow;
+    } on FunctionException catch (e) {
+      if (e.status == 401) {
+        throw Exception('Session expired — please sign in again');
+      }
+      _throwIfSubscriptionError(e.details);
+      debugPrint('Error generating posts: $e');
+      rethrow;
     } catch (e) {
       debugPrint('Error generating posts: $e');
       rethrow;
+    }
+  }
+
+  static void _throwIfSubscriptionError(dynamic body) {
+    if (body is! Map) return;
+    final error = body['error'] as String?;
+    if (error == 'subscription_required') {
+      throw const SubscriptionException(SubscriptionErrorType.requiresUpgrade);
+    }
+    if (error == 'daily_limit_reached') {
+      final resetsAt = body['resets_at'] != null
+          ? DateTime.parse(body['resets_at'] as String)
+          : null;
+      throw SubscriptionException(
+        SubscriptionErrorType.dailyLimitReached,
+        resetsAt: resetsAt,
+      );
     }
   }
 }
